@@ -45,6 +45,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.isVisibleToAssistant
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.encodeBase64
@@ -638,7 +639,15 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                     add(buildJsonObject {
                         put("role", "user")
                         putJsonArray("parts") {
-                            group.tools.forEach { add(it.toFunctionResponsePart()) }
+                            group.tools.forEach { tool ->
+                                add(tool.toFunctionResponsePart())
+                                // functionResponse 只支持 JSON 文本, 图片结果以 inlineData parts 跟随, 否则模型无法读取
+                                tool.output.filterIsInstance<UIMessagePart.Image>()
+                                    .filter { it.isVisibleToAssistant() }
+                                    .forEach { image ->
+                                    image.toGooglePart()?.let { add(it) }
+                                }
+                            }
                         }
                     })
                 }
@@ -724,6 +733,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 put(
                     "result",
                     output.filterIsInstance<UIMessagePart.Text>()
+                        .filter { it.isVisibleToAssistant() }
                         .joinToString("\n") { it.text }
                 )
             })

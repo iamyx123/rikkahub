@@ -657,6 +657,8 @@
   <string name="setting_display_page_enable_message_generation_haptic_effect_title">メッセージ生成時の触覚効果</string>
   <string name="setting_display_page_font_size_preview">午前4時、海棠の花がまだ眠っていないのを見た。私はよくこうして、誰もいない夜にひとり目を覚まし、思う——もし今この瞬間、誰かが私のことを思っていてくれたなら、それだけでいい。</string>
   <string name="setting_display_page_font_size_title">チャットフォントサイズ</string>
+  <string name="setting_display_page_immersive_mode_desc">ステータスバーを非表示にして全画面表示にします。画面上端からスワイプすると一時的に表示されます</string>
+  <string name="setting_display_page_immersive_mode_title">没入モード</string>
   <string name="setting_display_page_live_update_notification">ライブアップデート通知</string>
   <string name="setting_display_page_live_update_notification_desc">メッセージ生成中のリアルタイム通知アップデートを表示（Android 15以降）</string>
   <string name="setting_display_page_message_jumper_position_desc">メッセージジャンパーを左側に移動</string>
@@ -666,6 +668,8 @@
   <string name="setting_display_page_paste_long_text_as_file_desc">テキストを貼り付けた際にしきい値を超える場合、自動的にファイル添付として保存します</string>
   <string name="setting_display_page_paste_long_text_as_file_title">長いテキストをファイルとして貼り付け</string>
   <string name="setting_display_page_paste_long_text_threshold_title">文字数しきい値</string>
+  <string name="setting_display_page_scroll_to_bottom_on_send_desc">メッセージ送信時に最新メッセージへ自動的に移動します。オフにすると現在の閲覧位置を保持します</string>
+  <string name="setting_display_page_scroll_to_bottom_on_send_title">送信時に最新メッセージへ移動</string>
   <string name="setting_display_page_send_on_enter_desc">Enterキーでメッセージを送信し、改行しない</string>
   <string name="setting_display_page_send_on_enter_title">Enterキーで送信</string>
   <string name="setting_display_page_show_assistant_bubble_desc">アシスタントメッセージのバブル背景を表示するかどうか</string>
