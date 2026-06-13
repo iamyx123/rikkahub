@@ -600,6 +600,17 @@ data class DisplaySetting(
     val chatCustomFontName: String = "",
     val enableVolumeKeyScroll: Boolean = false,
     val volumeKeyScrollRatio: Float = 1.0f,
+    // 墨水屏设备无相机，拍照按钮改为连接电脑端 Screenshotter 服务截图
+    val screenshotServer: ScreenshotServerConfig = ScreenshotServerConfig(),
+    // 墨水屏优化：禁用界面动画与文本光标闪烁，减少屏幕刷新、降低耗电
+    val disableCursorBlink: Boolean = false,
+)
+
+// 电脑端 Screenshotter 服务端配置（仅本地局域网使用，IP+端口持久化）
+@Serializable
+data class ScreenshotServerConfig(
+    val host: String = "",
+    val port: Int = 5000,
 )
 
 @Serializable

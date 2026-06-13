@@ -61,6 +61,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,7 +85,10 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.blur.blurEffect
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.blur.materials.HazeMaterials
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ModelType
@@ -99,11 +103,14 @@ import me.rerere.hugeicons.stroke.FullScreen
 import me.rerere.hugeicons.stroke.Zap
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.mcp.McpManager
+import me.rerere.rikkahub.data.datastore.ScreenshotServerConfig
 import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
 import me.rerere.rikkahub.data.datastore.getQuickMessagesOfAssistant
 import me.rerere.rikkahub.data.files.FilesManager
+import me.rerere.rikkahub.data.screenshot.RemoteScreenshotClient
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.QuickMessage
@@ -174,6 +181,10 @@ fun ChatInput(
 
     val context = LocalContext.current
     val filesManager: FilesManager = koinInject()
+    val settingsStore: SettingsStore = koinInject()
+    val screenshotClient: RemoteScreenshotClient = koinInject()
+    val coroutineScope = rememberCoroutineScope()
+    var showScreenshotConfig by remember { mutableStateOf(false) }
     val asr = LocalASRState.current
     val asrState by asr.state.collectAsState()
     val hapticFeedback = LocalHapticFeedback.current
@@ -247,6 +258,41 @@ fun ChatInput(
             cameraLauncher.launch(cameraOutputUri!!)
         } else {
             cameraPermission.requestPermissions()
+        }
+    }
+
+    // 墨水屏设备无相机：短按拍照按钮 -> 连接电脑端 Screenshotter 服务，截取所有屏幕并加入当前对话
+    val onCaptureScreenshot: () -> Unit = capture@{
+        val config = settings.displaySetting.screenshotServer
+        if (config.host.isBlank()) {
+            // 未配置，引导用户进入配置（长按同样可进入）
+            toaster.show("请先长按拍照按钮配置电脑截图服务", type = ToastType.Warning)
+            showScreenshotConfig = true
+            return@capture
+        }
+        coroutineScope.launch {
+            toaster.show("正在截取电脑屏幕...", type = ToastType.Info)
+            // 网络与文件写入均在 IO 线程执行，避免大图写盘阻塞主线程导致 ANR
+            val result = runCatching {
+                val shots = screenshotClient.captureAll(config.host, config.port)
+                val uris = withContext(Dispatchers.IO) {
+                    filesManager.createChatFilesByByteArrays(shots.map { it.bytes })
+                }
+                shots.size to uris
+            }
+            result
+                .onSuccess { (count, uris) ->
+                    if (uris.isEmpty()) {
+                        toaster.show("未截取到任何屏幕", type = ToastType.Error)
+                        return@onSuccess
+                    }
+                    state.addImages(uris)
+                    toaster.show("已添加 $count 张屏幕截图", type = ToastType.Success)
+                    dismissExpand()
+                }
+                .onFailure {
+                    toaster.show("截图失败: ${it.message ?: "未知错误"}", type = ToastType.Error)
+                }
         }
     }
 
@@ -560,13 +606,37 @@ fun ChatInput(
                 showCompressDialog = showCompressDialog,
                 onShowCompressDialogChange = { showCompressDialog = it },
                 onDismiss = { dismissExpand() },
-                onTakePic = onLaunchCamera,
+                onTakePic = onCaptureScreenshot,
+                onConfigureScreenshot = { showScreenshotConfig = true },
                 onPickImage = { imagePickerLauncher.launch("image/*") },
                 onPickVideo = { videoPickerLauncher.launch("video/*") },
                 onPickAudio = { audioPickerLauncher.launch("audio/*") },
                 onPickFile = { filePickerLauncher.launch(arrayOf("*/*")) },
             )
         }
+    }
+
+    // 电脑截图服务配置对话框（长按拍照按钮触发）
+    if (showScreenshotConfig) {
+        val screenshotConfig = settings.displaySetting.screenshotServer
+        ScreenshotServerConfigDialog(
+            initialHost = screenshotConfig.host,
+            initialPort = screenshotConfig.port,
+            onDismiss = { showScreenshotConfig = false },
+            onSave = { host, port ->
+                coroutineScope.launch {
+                    settingsStore.update { current ->
+                        current.copy(
+                            displaySetting = current.displaySetting.copy(
+                                screenshotServer = ScreenshotServerConfig(host = host, port = port)
+                            )
+                        )
+                    }
+                    toaster.show("已保存电脑截图服务配置", type = ToastType.Success)
+                }
+                showScreenshotConfig = false
+            },
+        )
     }
 }
 
@@ -692,6 +762,9 @@ private fun TextInputRow(
                 focusedIndicatorColor = Color.Transparent,
                 focusedContainerColor = Color.Transparent,
                 unfocusedContainerColor = Color.Transparent,
+                // 墨水屏：禁用光标闪烁时把光标设为透明，避免持续刷新
+                cursorColor = if (settings.displaySetting.disableCursorBlink) Color.Transparent
+                else TextFieldDefaults.colors().cursorColor,
             ),
             trailingIcon = {
                 if (isFocused) {
@@ -770,6 +843,7 @@ private fun QuickMessageButton(
 private fun FullScreenEditor(
     state: ChatInputState, onDone: () -> Unit
 ) {
+    val disableCursorBlink = LocalSettings.current.displaySetting.disableCursorBlink
     BasicAlertDialog(
         onDismissRequest = {
             onDone()
@@ -820,6 +894,8 @@ private fun FullScreenEditor(
                             focusedIndicatorColor = Color.Transparent,
                             focusedContainerColor = Color.Transparent,
                             unfocusedContainerColor = Color.Transparent,
+                            cursorColor = if (disableCursorBlink) Color.Transparent
+                            else TextFieldDefaults.colors().cursorColor,
                         ),
                     )
                 }

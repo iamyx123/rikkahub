@@ -406,6 +406,29 @@ fun SettingPreferencesUIPage(vm: SettingVM = koinViewModel()) {
                     )
                 }
             }
+
+            // 墨水屏优化
+            item {
+                CardGroup(
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                    title = { Text("墨水屏优化") },
+                ) {
+                    item(
+                        headlineContent = { Text("禁用输入光标闪烁") },
+                        supportingContent = {
+                            Text("开启后输入框光标将变为透明，停止闪烁，减少墨水屏刷新、降低耗电（界面动画仍跟随系统设置）")
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = displaySetting.disableCursorBlink,
+                                onCheckedChange = {
+                                    updateDisplaySetting(displaySetting.copy(disableCursorBlink = it))
+                                }
+                            )
+                        },
+                    )
+                }
+            }
         }
     }
 }

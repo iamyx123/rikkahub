@@ -2,6 +2,7 @@ package me.rerere.rikkahub.ui.components.ai
 
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,31 +16,45 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.dokar.sonner.ToastType
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import me.rerere.rikkahub.data.screenshot.RemoteScreenshotClient
+import me.rerere.rikkahub.ui.context.LocalToaster
+import org.koin.compose.koinInject
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Camera01
@@ -80,6 +95,7 @@ internal fun FilesPicker(
     onShowCompressDialogChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     onTakePic: () -> Unit,
+    onConfigureScreenshot: () -> Unit,
     onPickImage: () -> Unit,
     onPickVideo: () -> Unit,
     onPickAudio: () -> Unit,
@@ -98,7 +114,7 @@ internal fun FilesPicker(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            TakePicButton(onLaunchCamera = onTakePic)
+            TakePicButton(onLaunchCamera = onTakePic, onLongClick = onConfigureScreenshot)
 
             ImagePickButton(onClick = onPickImage)
 
@@ -280,14 +296,18 @@ private fun ImagePickButton(onClick: () -> Unit = {}) {
 }
 
 @Composable
-fun TakePicButton(onLaunchCamera: () -> Unit = {}) {
-    BigIconTextButton(icon = {
-        Icon(HugeIcons.Camera01, null)
-    }, text = {
-        Text(stringResource(R.string.take_picture))
-    }) {
-        onLaunchCamera()
-    }
+fun TakePicButton(onLaunchCamera: () -> Unit = {}, onLongClick: (() -> Unit)? = null) {
+    BigIconTextButton(
+        icon = {
+            Icon(HugeIcons.Camera01, null)
+        },
+        text = {
+            // 墨水屏拍照按钮：短按截取电脑屏幕，长按配置服务端
+            Text(stringResource(R.string.take_picture))
+        },
+        onLongClick = onLongClick,
+        onClick = onLaunchCamera,
+    )
 }
 
 @Composable
@@ -328,14 +348,24 @@ private fun BigIconTextButton(
     modifier: Modifier = Modifier,
     icon: @Composable () -> Unit,
     text: @Composable () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    val haptic = LocalHapticFeedback.current
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .clickable(
-                interactionSource = interactionSource, indication = LocalIndication.current, onClick = onClick
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = onClick,
+                onLongClick = onLongClick?.let {
+                    {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        it()
+                    }
+                },
             )
             .semantics {
                 role = Role.Button
@@ -356,6 +386,87 @@ private fun BigIconTextButton(
             text()
         }
     }
+}
+
+/**
+ * 电脑端 Screenshotter 截图服务配置对话框。
+ * 长按拍照按钮弹出，配置服务端 IP + 端口，支持连通性测试，保存后持久化。
+ */
+@Composable
+fun ScreenshotServerConfigDialog(
+    initialHost: String,
+    initialPort: Int,
+    onDismiss: () -> Unit,
+    onSave: (host: String, port: Int) -> Unit,
+) {
+    val screenshotClient: RemoteScreenshotClient = koinInject()
+    val toaster = LocalToaster.current
+    val scope = rememberCoroutineScope()
+
+    var host by remember { mutableStateOf(initialHost) }
+    var portText by remember { mutableStateOf(initialPort.toString()) }
+    var testing by remember { mutableStateOf(false) }
+
+    fun currentPort(): Int = portText.toIntOrNull() ?: 5000
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("电脑截图服务") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "在电脑上运行 Screenshotter，填写其显示的局域网 IP 与端口（默认 5000）。短按拍照按钮即可截取电脑所有屏幕。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = host,
+                    onValueChange = { host = it.trim() },
+                    label = { Text("服务器 IP") },
+                    placeholder = { Text("例如 192.168.1.100") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = portText,
+                    onValueChange = { v -> portText = v.filter { it.isDigit() }.take(5) },
+                    label = { Text("端口") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextButton(
+                    enabled = !testing && host.isNotBlank(),
+                    onClick = {
+                        testing = true
+                        scope.launch {
+                            val result = runCatching { screenshotClient.testConnection(host, currentPort()) }
+                            testing = false
+                            result
+                                .onSuccess { toaster.show("连接成功", type = ToastType.Success) }
+                                .onFailure { toaster.show("连接失败: ${it.message}", type = ToastType.Error) }
+                        }
+                    },
+                ) {
+                    Text(if (testing) "测试中..." else "测试连接")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = host.isNotBlank(),
+                onClick = { onSave(host.trim(), currentPort()) },
+            ) {
+                Text(stringResource(android.R.string.ok))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(android.R.string.cancel))
+            }
+        },
+    )
 }
 
 @Preview(showBackground = true)
