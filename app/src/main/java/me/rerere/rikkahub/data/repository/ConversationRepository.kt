@@ -203,6 +203,10 @@ class ConversationRepository(
         return conversationDAO.existsById(uuid.toString())
     }
 
+    suspend fun countConversations(): Int {
+        return conversationDAO.countAll()
+    }
+
     suspend fun insertConversation(conversation: Conversation) {
         database.withTransaction {
             conversationDAO.insert(
@@ -280,6 +284,7 @@ class ConversationRepository(
             customSystemPrompt = conversation.customSystemPrompt ?: "",
             modeInjectionIds = JsonInstant.encodeToString(conversation.modeInjectionIds),
             lorebookIds = JsonInstant.encodeToString(conversation.lorebookIds),
+            workspaceCwd = conversation.workspaceCwd ?: "",
         )
     }
 
@@ -299,6 +304,7 @@ class ConversationRepository(
             customSystemPrompt = conversationEntity.customSystemPrompt.ifEmpty { null },
             modeInjectionIds = JsonInstant.decodeFromString(conversationEntity.modeInjectionIds),
             lorebookIds = JsonInstant.decodeFromString(conversationEntity.lorebookIds),
+            workspaceCwd = conversationEntity.workspaceCwd.ifEmpty { null },
         )
     }
 

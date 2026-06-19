@@ -143,6 +143,10 @@ val dataSourceModule = module {
     }
 
     single {
+        get<AppDatabase>().workspaceDao()
+    }
+
+    single {
         MessageFtsManager(get())
     }
 
@@ -154,8 +158,7 @@ val dataSourceModule = module {
             providerManager = get(),
             json = get(),
             memoryRepo = get(),
-            conversationRepo = get(),
-            aiLoggingManager = get()
+            conversationRepo = get()
         )
     }
 
