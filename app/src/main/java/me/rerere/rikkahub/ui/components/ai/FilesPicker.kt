@@ -576,6 +576,7 @@ fun ScreenshotServerConfigDialog(
     var host by remember { mutableStateOf(initialHost) }
     var portText by remember { mutableStateOf(initialPort.toString()) }
     var testing by remember { mutableStateOf(false) }
+    var scanning by remember { mutableStateOf(false) }
 
     fun currentPort(): Int = portText.toIntOrNull() ?: 5000
 
@@ -585,7 +586,7 @@ fun ScreenshotServerConfigDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "在电脑上运行 Screenshotter，填写其显示的局域网 IP 与端口（默认 5000）。短按拍照按钮即可截取电脑所有屏幕。",
+                    text = "在电脑上运行 Screenshotter，点「自动扫描」即可发现同一局域网内的服务（无需手动输入 IP），也可手动填写其显示的 IP 与端口（默认 5000）。短按拍照按钮即可截取电脑所有屏幕。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -606,20 +607,48 @@ fun ScreenshotServerConfigDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                TextButton(
-                    enabled = !testing && host.isNotBlank(),
-                    onClick = {
-                        testing = true
-                        scope.launch {
-                            val result = runCatching { screenshotClient.testConnection(host, currentPort()) }
-                            testing = false
-                            result
-                                .onSuccess { toaster.show("连接成功", type = ToastType.Success) }
-                                .onFailure { toaster.show("连接失败: ${it.message}", type = ToastType.Error) }
-                        }
-                    },
-                ) {
-                    Text(if (testing) "测试中..." else "测试连接")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        enabled = !scanning && !testing,
+                        onClick = {
+                            scanning = true
+                            scope.launch {
+                                toaster.show("正在扫描局域网...", type = ToastType.Info)
+                                val result = runCatching { screenshotClient.discoverServer(currentPort()) }
+                                scanning = false
+                                result
+                                    .onSuccess { ip ->
+                                        if (ip != null) {
+                                            host = ip
+                                            toaster.show("发现服务器: $ip", type = ToastType.Success)
+                                        } else {
+                                            toaster.show(
+                                                "未发现服务器，请确认电脑端已运行且处于同一局域网",
+                                                type = ToastType.Warning
+                                            )
+                                        }
+                                    }
+                                    .onFailure { toaster.show("扫描失败: ${it.message}", type = ToastType.Error) }
+                            }
+                        },
+                    ) {
+                        Text(if (scanning) "扫描中..." else "自动扫描")
+                    }
+                    TextButton(
+                        enabled = !testing && !scanning && host.isNotBlank(),
+                        onClick = {
+                            testing = true
+                            scope.launch {
+                                val result = runCatching { screenshotClient.testConnection(host, currentPort()) }
+                                testing = false
+                                result
+                                    .onSuccess { toaster.show("连接成功", type = ToastType.Success) }
+                                    .onFailure { toaster.show("连接失败: ${it.message}", type = ToastType.Error) }
+                            }
+                        },
+                    ) {
+                        Text(if (testing) "测试中..." else "测试连接")
+                    }
                 }
             }
         },

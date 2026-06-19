@@ -36,12 +36,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.KeyboardActionHandler
+import androidx.compose.foundation.text.input.TextFieldDecorator
 import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -59,15 +64,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -530,53 +540,100 @@ private fun TextInputRow(
             )
         }
 
-        TextField(
-            state = state.textContent,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("chat_input")
-                .contentReceiver(receiveContentListener)
-                .onFocusChanged {
-                    isFocused = it.isFocused
+        if (settings.displaySetting.disableCursorBlink) {
+            // 墨水屏：可见但不闪烁的静态光标
+            StaticCaretTextField(
+                state = state.textContent,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                caretColor = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("chat_input")
+                    .contentReceiver(receiveContentListener)
+                    .onFocusChanged { isFocused = it.isFocused },
+                keyboardOptions = KeyboardOptions(
+                    imeAction = if (settings.displaySetting.sendOnEnter) ImeAction.Send else ImeAction.Default
+                ),
+                onKeyboardAction = {
+                    if (settings.displaySetting.sendOnEnter && !state.isEmpty()) {
+                        onSendMessage()
+                    }
                 },
-            shape = MaterialTheme.shapes.largeIncreased,
-            placeholder = {
-                Text(stringResource(R.string.chat_input_placeholder))
-            },
-            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5),
-            keyboardOptions = KeyboardOptions(
-                imeAction = if (settings.displaySetting.sendOnEnter) ImeAction.Send else ImeAction.Default
-            ),
-            onKeyboardAction = {
-                if (settings.displaySetting.sendOnEnter && !state.isEmpty()) {
-                    onSendMessage()
-                }
-            },
-            colors = TextFieldDefaults.colors().copy(
-                unfocusedIndicatorColor = Color.Transparent,
-                focusedIndicatorColor = Color.Transparent,
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                // 墨水屏：禁用光标闪烁时把光标设为透明，避免持续刷新
-                cursorColor = if (settings.displaySetting.disableCursorBlink) Color.Transparent
-                else TextFieldDefaults.colors().cursorColor,
-            ),
-            trailingIcon = {
-                if (isFocused) {
-                    IconButton(
-                        onClick = {
-                            isFullScreen = !isFullScreen
-                        }) {
-                        Icon(HugeIcons.FullScreen, null)
+                lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5),
+            ) { textWithCaret ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (quickMessages.isNotEmpty()) {
+                        QuickMessageButton(quickMessages = quickMessages, state = state)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 16.dp, vertical = 16.dp)
+                    ) {
+                        if (state.textContent.text.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.chat_input_placeholder),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        textWithCaret()
+                    }
+                    if (isFocused) {
+                        IconButton(onClick = { isFullScreen = !isFullScreen }) {
+                            Icon(HugeIcons.FullScreen, null)
+                        }
                     }
                 }
-            },
-            leadingIcon = if (quickMessages.isNotEmpty()) {
-                {
-                    QuickMessageButton(quickMessages = quickMessages, state = state)
-                }
-            } else null,
-        )
+            }
+        } else {
+            TextField(
+                state = state.textContent,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("chat_input")
+                    .contentReceiver(receiveContentListener)
+                    .onFocusChanged {
+                        isFocused = it.isFocused
+                    },
+                shape = MaterialTheme.shapes.largeIncreased,
+                placeholder = {
+                    Text(stringResource(R.string.chat_input_placeholder))
+                },
+                lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5),
+                keyboardOptions = KeyboardOptions(
+                    imeAction = if (settings.displaySetting.sendOnEnter) ImeAction.Send else ImeAction.Default
+                ),
+                onKeyboardAction = {
+                    if (settings.displaySetting.sendOnEnter && !state.isEmpty()) {
+                        onSendMessage()
+                    }
+                },
+                colors = TextFieldDefaults.colors().copy(
+                    unfocusedIndicatorColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                ),
+                trailingIcon = {
+                    if (isFocused) {
+                        IconButton(
+                            onClick = {
+                                isFullScreen = !isFullScreen
+                            }) {
+                            Icon(HugeIcons.FullScreen, null)
+                        }
+                    }
+                },
+                leadingIcon = if (quickMessages.isNotEmpty()) {
+                    {
+                        QuickMessageButton(quickMessages = quickMessages, state = state)
+                    }
+                } else null,
+            )
+        }
         if (isFullScreen) {
             FullScreenEditor(state = state) {
                 isFullScreen = false
@@ -715,6 +772,65 @@ private fun QuickMessageButton(
     }
 }
 
+/**
+ * 墨水屏专用：无闪烁但可见的光标输入框。
+ *
+ * Compose 没有「关闭闪烁但保留光标」的公开 API（闪烁是 BasicTextField 内部的 alpha 动画），
+ * 因此这里隐藏系统光标（cursorBrush 透明），并依据文本布局在光标位置静态绘制一条竖线。
+ * 静态竖线不会触发持续刷新，且会随点击/方向键移动与滚动正确跟随。
+ *
+ * 仅在「禁用光标闪烁」开启时使用；关闭时仍走原生 Material TextField。
+ */
+@Composable
+private fun StaticCaretTextField(
+    state: TextFieldState,
+    textStyle: TextStyle,
+    caretColor: Color,
+    modifier: Modifier = Modifier,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    onKeyboardAction: KeyboardActionHandler? = null,
+    lineLimits: TextFieldLineLimits = TextFieldLineLimits.Default,
+    decoration: @Composable (textWithCaret: @Composable () -> Unit) -> Unit,
+) {
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val scroll = rememberScrollState()
+    BasicTextField(
+        state = state,
+        modifier = modifier,
+        textStyle = textStyle,
+        keyboardOptions = keyboardOptions,
+        onKeyboardAction = onKeyboardAction,
+        lineLimits = lineLimits,
+        onTextLayout = { layout = it() },
+        cursorBrush = SolidColor(Color.Transparent), // 隐藏会闪烁的系统光标
+        scrollState = scroll,
+        decorator = TextFieldDecorator { innerTextField ->
+            decoration {
+                Box(
+                    modifier = Modifier.drawWithContent {
+                        drawContent()
+                        val sel = state.selection
+                        val l = layout
+                        if (sel.collapsed && l != null) {
+                            val len = l.layoutInput.text.length
+                            val rect = l.getCursorRect(sel.start.coerceIn(0, len))
+                            val dy = scroll.value.toFloat()
+                            drawLine(
+                                color = caretColor,
+                                start = Offset(rect.left, rect.top - dy),
+                                end = Offset(rect.left, rect.bottom - dy),
+                                strokeWidth = 2.dp.toPx(),
+                            )
+                        }
+                    }
+                ) {
+                    innerTextField()
+                }
+            }
+        },
+    )
+}
+
 @Composable
 private fun FullScreenEditor(
     state: ChatInputState, onDone: () -> Unit
@@ -756,25 +872,49 @@ private fun FullScreenEditor(
                             Text(stringResource(R.string.chat_page_save))
                         }
                     }
-                    TextField(
-                        state = state.textContent,
-                        modifier = Modifier
-                            .padding(bottom = 2.dp)
-                            .fillMaxSize(),
-                        shape = RoundedCornerShape(32.dp),
-                        placeholder = {
-                            Text(stringResource(R.string.chat_input_placeholder))
-                        },
-                        colors = TextFieldDefaults.colors().copy(
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            // 墨水屏：禁用光标闪烁
-                            cursorColor = if (disableCursorBlink) Color.Transparent
-                            else TextFieldDefaults.colors().cursorColor,
-                        ),
-                    )
+                    if (disableCursorBlink) {
+                        // 墨水屏：可见但不闪烁的静态光标
+                        StaticCaretTextField(
+                            state = state.textContent,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                            caretColor = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(bottom = 2.dp)
+                                .fillMaxSize(),
+                            lineLimits = TextFieldLineLimits.MultiLine(),
+                        ) { textWithCaret ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp)
+                            ) {
+                                if (state.textContent.text.isEmpty()) {
+                                    Text(
+                                        text = stringResource(R.string.chat_input_placeholder),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                textWithCaret()
+                            }
+                        }
+                    } else {
+                        TextField(
+                            state = state.textContent,
+                            modifier = Modifier
+                                .padding(bottom = 2.dp)
+                                .fillMaxSize(),
+                            shape = RoundedCornerShape(32.dp),
+                            placeholder = {
+                                Text(stringResource(R.string.chat_input_placeholder))
+                            },
+                            colors = TextFieldDefaults.colors().copy(
+                                unfocusedIndicatorColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                            ),
+                        )
+                    }
                 }
             }
         }

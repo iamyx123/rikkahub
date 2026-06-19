@@ -2,6 +2,8 @@ package me.rerere.rikkahub.ui.pages.chat
 
 import android.net.Uri
 import android.util.Log
+import android.view.ViewParent
+import android.view.Window
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -43,6 +45,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,6 +54,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.dokar.sonner.ToastType
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
@@ -496,6 +503,35 @@ private fun ChatPageContent(
     }
 }
 
+/**
+ * 让所在的对话框/底部弹窗的独立窗口进入沉浸全屏（隐藏系统栏）。
+ * ModalBottomSheet/Dialog 都运行在自己的 Window 上，不会继承 Activity 的全屏 flag，
+ * 因此需要单独对其窗口应用 WindowInsetsController。
+ */
+@Composable
+private fun ImmersiveDialogWindowEffect(enabled: Boolean) {
+    if (!enabled) return
+    val view = LocalView.current
+    LaunchedEffect(view) {
+        var parent: ViewParent? = view.parent
+        var window: Window? = null
+        while (parent != null) {
+            if (parent is DialogWindowProvider) {
+                window = parent.window
+                break
+            }
+            parent = parent.parent
+        }
+        window?.let {
+            WindowCompat.setDecorFitsSystemWindows(it, false)
+            val controller = WindowCompat.getInsetsController(it, it.decorView)
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+}
+
 @Composable
 private fun ChatFilesPickerSheet(
     inputState: ChatInputState,
@@ -566,15 +602,27 @@ private fun ChatFilesPickerSheet(
     }
 
     // 墨水屏设备无相机：短按拍照按钮 -> 连接电脑端 Screenshotter 服务，截取所有屏幕并加入当前对话
-    val onCaptureScreenshot: () -> Unit = capture@{
-        val config = setting.displaySetting.screenshotServer
-        if (config.host.isBlank()) {
-            // 未配置，引导用户进入配置（长按同样可进入）
-            toaster.show("请先长按拍照按钮配置电脑截图服务", type = ToastType.Warning)
-            showScreenshotConfig = true
-            return@capture
-        }
+    val onCaptureScreenshot: () -> Unit = {
         scope.launch {
+            var config = setting.displaySetting.screenshotServer
+            // 未配置 IP：先自动扫描局域网，免去手动输入
+            if (config.host.isBlank()) {
+                toaster.show("未配置服务器，正在自动扫描局域网...", type = ToastType.Info)
+                val discovered = runCatching { screenshotClient.discoverServer(config.port) }.getOrNull()
+                if (discovered.isNullOrBlank()) {
+                    toaster.show("未发现电脑截图服务，请长按拍照按钮手动配置", type = ToastType.Warning)
+                    showScreenshotConfig = true
+                    return@launch
+                }
+                config = config.copy(host = discovered)
+                // 记住发现的 IP，下次直接使用
+                vm.updateSettings(
+                    setting.copy(
+                        displaySetting = setting.displaySetting.copy(screenshotServer = config)
+                    )
+                )
+                toaster.show("已发现服务器: $discovered", type = ToastType.Success)
+            }
             toaster.show("正在截取电脑屏幕...", type = ToastType.Info)
             // 网络与文件写入均在 IO 线程执行，避免大图写盘阻塞主线程导致 ANR
             val result = runCatching {
@@ -694,6 +742,9 @@ private fun ChatFilesPickerSheet(
         sheetState = filesSheetState,
         onDismissRequest = { dismissAll() },
     ) {
+        // 沉浸模式下，让底部弹窗所在的独立窗口同样隐藏系统栏，
+        // 避免点「+」弹出选择面板时状态栏/导航栏复现导致全屏丢失
+        ImmersiveDialogWindowEffect(setting.displaySetting.enableImmersiveMode)
         FilesPicker(
             conversation = conversation,
             state = inputState,
