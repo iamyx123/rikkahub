@@ -86,6 +86,16 @@ android {
             buildConfigField("String", "VERSION_NAME", "\"${android.defaultConfig.versionName}\"")
             buildConfigField("String", "VERSION_CODE", "\"${android.defaultConfig.versionCode}\"")
         }
+        // 优化版:release 级别的优化(流畅 / 体积小 / 无 [开发模式] / 无冗余日志),
+        // 但保留 .debug 包名与 debug 签名,可直接覆盖现装的自定义版
+        create("releaseDebug") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".debug"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -131,6 +141,17 @@ composeCompiler {
 tasks.register("buildAll") {
     dependsOn("assembleRelease", "bundleRelease")
     description = "Build both APK and AAB"
+}
+
+// 一键发布:构建 releaseDebug 优化包,并把 arm64 产物覆盖到 hlassist-release
+tasks.register<Copy>("publishHlassist") {
+    group = "publishing"
+    description = "构建 releaseDebug 并发布 arm64 包到 hlassist-release(覆盖旧包)"
+    dependsOn("assembleReleaseDebug")
+    from(layout.buildDirectory.dir("outputs/apk/releaseDebug"))
+    include("*arm64-v8a*.apk")
+    into("Y:/home/ireader/hlassist-release")
+    rename { "app-arm64-v8a-debug.apk" }
 }
 
 ksp {
