@@ -65,6 +65,7 @@ import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -111,6 +112,7 @@ import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
 import java.io.File
+import kotlin.math.roundToInt
 import kotlin.uuid.Uuid
 
 @Composable
@@ -313,6 +315,32 @@ private fun ChatPageContent(
     var showFilesSheet by remember { mutableStateOf(false) }
     val bookmarks by vm.bookmarks.collectAsStateWithLifecycle()
 
+    // 预览模式点击搜索结果跳转：先切回正常列表，待列表完成布局后，按匹配词在该条消息中的
+    // 字符占比估算纵向偏移，滚动定位到匹配处附近（而非只停在消息开头）。
+    var pendingJump by remember { mutableStateOf<Pair<Int, String>?>(null) }
+    LaunchedEffect(pendingJump) {
+        val (index, query) = pendingJump ?: return@LaunchedEffect
+        // 等待从预览切回正常列表并把目标项布局出来，避免「只跳到开头」的竞态
+        snapshotFlow { chatListState.layoutInfo.totalItemsCount }
+            .filter { it > index }
+            .first()
+        chatListState.scrollToItem(index)
+        val fullText = conversation.messageNodes.getOrNull(index)?.currentMessage?.toText().orEmpty()
+        val matchIdx = if (query.isBlank()) -1 else fullText.indexOf(query, ignoreCase = true)
+        if (matchIdx > 0 && fullText.isNotEmpty()) {
+            // scrollToItem 后等该项真正出现在可见区，读取其真实高度再按占比定位
+            val itemInfo = snapshotFlow {
+                chatListState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
+            }.filterNotNull().first()
+            val viewportH = chatListState.layoutInfo.viewportSize.height
+            val frac = matchIdx.toFloat() / fullText.length
+            // 留出约 1/6 视口高度作为上方留白，让匹配处不顶在最上沿
+            val offset = (frac * itemInfo.size - viewportH / 6f).roundToInt().coerceAtLeast(0)
+            if (offset > 0) chatListState.scrollToItem(index, offset)
+        }
+        pendingJump = null
+    }
+
     val completionProviders = remember(assistant.workspaceId, conversation.workspaceCwd, workspaceRepository) {
         assistant.workspaceId?.let { workspaceId ->
             listOf(
@@ -486,11 +514,9 @@ private fun ChatPageContent(
                 onClearTranslation = { message ->
                     vm.clearTranslationField(message.id)
                 },
-                onJumpToMessage = { index ->
+                onJumpToMessage = { index, query ->
                     previewMode = false
-                    scope.launch {
-                        chatListState.animateScrollToItem(index)
-                    }
+                    pendingJump = index to query
                 },
                 onToolApproval = { toolCallId, approved, reason ->
                     vm.handleToolApproval(toolCallId, approved, reason)

@@ -154,7 +154,7 @@ fun ChatList(
     onClickSuggestion: (String) -> Unit = {},
     onTranslate: ((UIMessage, java.util.Locale) -> Unit)? = null,
     onClearTranslation: (UIMessage) -> Unit = {},
-    onJumpToMessage: (Int) -> Unit = {},
+    onJumpToMessage: (index: Int, query: String) -> Unit = { _, _ -> },
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
@@ -634,7 +634,7 @@ private fun ChatListPreview(
     settings: Settings,
     hazeState: HazeState,
     animatedVisibilityScope: AnimatedVisibilityScope,
-    onJumpToMessage: (Int) -> Unit
+    onJumpToMessage: (index: Int, query: String) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
 
@@ -714,7 +714,7 @@ private fun ChatListPreview(
                         Row(
                             modifier = Modifier
                                 .clickable {
-                                    onJumpToMessage(originalIndex)
+                                    onJumpToMessage(originalIndex, searchQuery)
                                 }
                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -978,6 +978,35 @@ private fun BoxScope.MessageNavigator(
             }
         }
 
+        // 长按≥3 秒进入「移动模式」时的提示：明确告诉用户现在拖动可调整按钮位置
+        if (repositioning) {
+            val hintW = 132.dp
+            val hintH = 36.dp
+            val hintWpx = with(density) { hintW.toPx() }
+            val hintHpx = with(density) { hintH.toPx() }
+            val gap = with(density) { 10.dp.toPx() }
+            val hx = if (onLeft) (anchorX + buttonSizePx + gap) else (anchorX - hintWpx - gap)
+            val hy = (buttonCenterY - hintHpx / 2f)
+                .coerceIn(marginPx, (maxHpx - hintHpx - marginPx).fastCoerceAtLeast(marginPx))
+            Surface(
+                modifier = Modifier
+                    .offset { IntOffset(hx.roundToInt(), hy.roundToInt()) }
+                    .size(width = hintW, height = hintH),
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("请拖动调整位置", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                }
+            }
+        }
+
         // 常驻按钮：位置固定（收起即在原位）。轻点=展开/收起书签面板；按住上下拖=定格快速翻页；长按≥3秒=进入移动模式
         Surface(
             modifier = Modifier
@@ -989,12 +1018,16 @@ private fun BoxScope.MessageNavigator(
                         val down = awaitFirstDown(requireUnconsumed = false)
                         var mode = 0 // 0=未定 1=导航 2=移动
                         val startY = down.position.y
+                        // 手指一按下就显示完整 7 档「目标梯」，让用户立刻看清拖到哪触发哪个动作
+                        // （不必等拖过 touchSlop 才出现），便于形成肌肉记忆。
+                        navDetent = 0
                         // 长按满 3 秒（其间几乎不动）才进入「移动按钮」模式，避免误触
                         val longPress = scope.launch {
                             delay(3000)
                             if (mode == 0) {
                                 mode = 2
                                 repositioning = true
+                                navDetent = null // 进入移动模式：收起目标梯，改为显示「请拖动调整位置」
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             }
                         }
@@ -1008,7 +1041,6 @@ private fun BoxScope.MessageNavigator(
                                     mode = 1
                                     longPress.cancel()
                                     haptic.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
-                                    navDetent = 0
                                 }
                                 if (mode == 1) {
                                     val d = (dy / stepPx).roundToInt().coerceIn(-3, 3)
@@ -1033,16 +1065,20 @@ private fun BoxScope.MessageNavigator(
                                 }
 
                                 2 -> repositioning = false
-                                else -> expanded = !expanded
+                                else -> {
+                                    // 快速轻点（未拖动也未长按）：收起目标梯并切换书签面板
+                                    navDetent = null
+                                    expanded = !expanded
+                                }
                             }
                         }
                     }
                 },
             shape = CircleShape,
-            color = if (expanded || repositioning) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp).copy(alpha = 0.45f),
-            contentColor = if (expanded || repositioning) MaterialTheme.colorScheme.onPrimary
-            else MaterialTheme.colorScheme.onSurfaceVariant,
+            // 静止/展开态：背景完全透明，只露出一个灰色图标（不遮挡正文）；
+            // 仅在「移动模式」下用实色填充+描边，提示按钮已被抓起可拖动。
+            color = if (repositioning) MaterialTheme.colorScheme.primary else Color.Transparent,
+            contentColor = if (repositioning) MaterialTheme.colorScheme.onPrimary else Color.Gray,
             border = if (repositioning) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         ) {
             Box(contentAlignment = Alignment.Center) {

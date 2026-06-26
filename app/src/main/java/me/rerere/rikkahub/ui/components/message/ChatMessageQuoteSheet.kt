@@ -23,12 +23,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import me.rerere.ai.ui.UIMessage
@@ -57,6 +62,14 @@ fun ChatMessageQuoteSheet(
             .joinToString("\n\n") { it.text }
     }
     val textState = rememberTextFieldState(fullText)
+
+    // 用户在只读输入框选好文本后点「引用选中」时，按钮抢走焦点会把输入框的实时选区折叠成光标，
+    // 导致点按瞬间读不到选区。这里实时记录最后一次「非折叠」选区，点按时优先使用它。
+    var lastSelection by remember { mutableStateOf<TextRange?>(null) }
+    LaunchedEffect(textState) {
+        snapshotFlow { textState.selection }
+            .collect { if (!it.collapsed) lastSelection = it }
+    }
 
     ModalBottomSheet(
         scrimColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -91,9 +104,10 @@ fun ChatMessageQuoteSheet(
 
                 TextButton(
                     onClick = {
-                        val sel = textState.selection
                         val text = textState.text.toString()
-                        val selected = if (sel.collapsed) {
+                        // 当前选区已折叠（失焦）时退回最后一次记录的非折叠选区；都没有才引用整条
+                        val sel = textState.selection.takeIf { !it.collapsed } ?: lastSelection
+                        val selected = if (sel == null || sel.collapsed) {
                             text
                         } else {
                             text.substring(sel.min.coerceIn(0, text.length), sel.max.coerceIn(0, text.length))

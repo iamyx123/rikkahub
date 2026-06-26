@@ -18,7 +18,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.contextmenu.builder.item
+import androidx.compose.foundation.text.contextmenu.modifier.appendTextContextMenuComponents
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.selection.rememberSelectionState
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
@@ -171,6 +174,7 @@ fun ChatMessage(
                 onToolApproval = onToolApproval,
                 onToolAnswer = onToolAnswer,
                 onUserMessageClick = if (message.role == MessageRole.USER) onEdit else null,
+                onQuote = onQuote,
             )
 
             message.translation?.let { translation ->
@@ -290,6 +294,7 @@ private fun MessagePartsBlock(
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onUserMessageClick: (() -> Unit)? = null,
+    onQuote: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
@@ -433,7 +438,22 @@ private fun MessagePartsBlock(
                         if (loading) {
                             textContent()
                         } else {
-                            SelectionContainer {
+                            // 用带 state 的 SelectionContainer 取得当前选区文本，并往系统选择工具栏
+                            // 追加「引用」项：选中消息中任意一段 -> 直接作为引用块送入输入框，
+                            // 无需再打开单独的引用弹窗。
+                            val selectionState = rememberSelectionState()
+                            SelectionContainer(
+                                selectionState,
+                                Modifier.appendTextContextMenuComponents {
+                                    item("quote", "引用") {
+                                        val selected = selectionState.selectedTexts
+                                            .joinToString("\n") { it.text }
+                                            .trim()
+                                        if (selected.isNotBlank()) onQuote(selected)
+                                        close()
+                                    }
+                                },
+                            ) {
                                 textContent()
                             }
                         }
