@@ -157,8 +157,7 @@ val dataSourceModule = module {
             context = get(),
             providerManager = get(),
             json = get(),
-            memoryRepo = get(),
-            conversationRepo = get()
+            memoryRepo = get()
         )
     }
 
