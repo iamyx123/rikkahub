@@ -547,6 +547,8 @@ private fun ChatListNormal(
                 bookmarks = bookmarks,
                 onAddBookmark = onAddBookmark,
                 onDeleteBookmark = onDeleteBookmark,
+                dragSensitivity = settings.displaySetting.bookmarkDragSensitivity,
+                dragRange = settings.displaySetting.bookmarkDragRange,
             )
 
             // Suggestion
@@ -786,6 +788,8 @@ private fun BoxScope.MessageNavigator(
     bookmarks: List<MessageBookmark>,
     onAddBookmark: (nodeId: Uuid, scrollOffset: Int, label: String) -> Unit,
     onDeleteBookmark: (Uuid) -> Unit,
+    dragSensitivity: Float = 1f,
+    dragRange: Float = 1f,
 ) {
     if (!show) return
     val density = LocalDensity.current
@@ -808,33 +812,41 @@ private fun BoxScope.MessageNavigator(
         val buttonSize = 46.dp
         val buttonSizePx = with(density) { buttonSize.toPx() }
         val marginPx = with(density) { 6.dp.toPx() }
-        val stepPx = with(density) { 52.dp.toPx() }
 
-        // 7 档（顶/上2/上1/中/下1/下2/底）需要按钮上下各留 3 档空间，据此约束按钮可放置的纵向范围
-        val minY = 3 * stepPx + marginPx
-        val maxY = (maxHpx - buttonSizePx - 3 * stepPx - marginPx).coerceAtLeast(minY)
+        // 每「档」拖动距离：灵敏度越高距离越短；并根据可用高度自动收缩，保证 ±3 档都放得下
+        val sens = dragSensitivity.coerceIn(0.5f, 2f)
+        val baseStepPx = with(density) { 58.dp.toPx() } / sens
+        val maxStepForFit = (maxHpx - 2 * marginPx - buttonSizePx) / 6f
+        val stepPx = baseStepPx.coerceIn(with(density) { 24.dp.toPx() }, maxStepForFit.fastCoerceAtLeast(with(density) { 24.dp.toPx() }))
+
+        // 按钮可放置的纵向安全区（上下各留 3 档），再按「范围」设置在其内收缩
+        val safeMinY = 3 * stepPx + marginPx
+        val safeMaxY = (maxHpx - buttonSizePx - 3 * stepPx - marginPx).fastCoerceAtLeast(safeMinY)
+        val centerY = (safeMinY + safeMaxY) / 2f
+        val halfRange = (safeMaxY - safeMinY) / 2f * dragRange.coerceIn(0.4f, 1f)
+        val minY = centerY - halfRange
+        val maxY = centerY + halfRange
         var buttonYpx by remember(conversation.id) { mutableStateOf(Float.NaN) }
-        val defaultY = (maxHpx / 2f - buttonSizePx / 2f).coerceIn(minY, maxY)
+        val defaultY = centerY.coerceIn(minY, maxY)
         val anchorY = (if (buttonYpx.isNaN()) defaultY else buttonYpx).coerceIn(minY, maxY)
         val anchorX = if (onLeft) marginPx else (maxWpx - buttonSizePx - marginPx)
+        val buttonCenterY = anchorY + buttonSizePx / 2f
 
         // 拖动导航当前档位：-3顶 -2 -1 0中 1 2 3底；null=未拖动
         var navDetent by remember { mutableStateOf<Int?>(null) }
         var repositioning by remember { mutableStateOf(false) }
 
-        // 展开的书签面板：放在按钮靠屏幕中心的一侧、垂直对齐按钮，不移动按钮位置（收起即原位）
+        // 展开的书签面板：用对齐方式固定在按钮一侧、垂直居中（不依赖测量 -> 打开即到位，无跳动、无二次重刷）
         if (expanded) {
-            var panelSize by remember { mutableStateOf(IntSize.Zero) }
-            val gapPx = with(density) { 8.dp.toPx() }
-            val panelX = if (onLeft) (anchorX + buttonSizePx + gapPx)
-            else (anchorX - panelSize.width - gapPx)
-            val panelY = (anchorY + buttonSizePx / 2f - panelSize.height / 2f)
-                .coerceIn(marginPx, (maxHpx - panelSize.height - marginPx).coerceAtLeast(marginPx))
             Surface(
                 modifier = Modifier
-                    .offset { IntOffset(panelX.roundToInt(), panelY.roundToInt()) }
-                    .onGloballyPositioned { panelSize = it.size }
-                    .widthIn(min = 160.dp, max = 240.dp),
+                    .align(if (onLeft) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(
+                        start = if (onLeft) buttonSize + 10.dp else 0.dp,
+                        end = if (onLeft) 0.dp else buttonSize + 10.dp,
+                    )
+                    .widthIn(min = 160.dp, max = 240.dp)
+                    .heightIn(max = with(density) { (maxHpx - 2 * marginPx).toDp() }),
                 shape = RoundedCornerShape(18.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
@@ -927,31 +939,41 @@ private fun BoxScope.MessageNavigator(
             }
         }
 
-        // 拖动导航的「凸出」指示器：显示在按钮靠中心一侧（避免手指遮挡），仅在卡到新档位时变化
-        navDetent?.let { d ->
-            val (icon, label) = detentLabel(d)
-            val indWpx = with(density) { 104.dp.toPx() }
-            val gap = with(density) { 8.dp.toPx() }
-            val indX = if (onLeft) (anchorX + buttonSizePx + gap) else (anchorX - indWpx - gap)
-            Surface(
-                modifier = Modifier
-                    .offset { IntOffset(indX.roundToInt(), anchorY.roundToInt()) }
-                    .size(width = 104.dp, height = buttonSize),
-                shape = RoundedCornerShape(12.dp),
-                color = if (d == 0) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.primary,
-                contentColor = if (d == 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary,
-            ) {
-                Row(
+        // 拖动导航：显示完整的 7 档「目标梯」（顶/上2/上1/中/下1/下2/底），当前档高亮，
+        // 让用户一眼看清拖到哪触发哪个动作、便于形成肌肉记忆。仅在卡到新档位时整体更新一次（不逐帧刷新）。
+        navDetent?.let { active ->
+            val chipW = 112.dp
+            val chipH = 38.dp
+            val chipWpx = with(density) { chipW.toPx() }
+            val chipHpx = with(density) { chipH.toPx() }
+            val gap = with(density) { 10.dp.toPx() }
+            val ladderX = if (onLeft) (anchorX + buttonSizePx + gap) else (anchorX - chipWpx - gap)
+            for (d in -3..3) {
+                val cy = (buttonCenterY + d * stepPx - chipHpx / 2f)
+                    .coerceIn(marginPx, (maxHpx - chipHpx - marginPx).fastCoerceAtLeast(marginPx))
+                val (icon, label) = detentLabel(d)
+                val isActive = d == active
+                Surface(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        .offset { IntOffset(ladderX.roundToInt(), cy.roundToInt()) }
+                        .size(width = chipW, height = chipH),
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isActive) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f),
+                    contentColor = if (isActive) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    border = if (isActive) BorderStroke(2.dp, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f)) else null,
                 ) {
-                    if (icon != null) {
-                        Icon(icon, null, modifier = Modifier.size(16.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        if (icon != null) Icon(icon, null, modifier = Modifier.size(15.dp))
+                        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
                     }
-                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
                 }
             }
         }

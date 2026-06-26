@@ -123,6 +123,64 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                                 )
                             },
                         )
+                        // 书签按钮按住上下拖动「定格翻页」的灵敏度（每档拖动距离，越右越灵敏）
+                        item(
+                            headlineContent = { Text("书签拖动灵敏度") },
+                            supportingContent = {
+                                Column {
+                                    Text(
+                                        text = "按住书签按钮上下拖动翻页时，每「档」需要拖动的距离（越右越灵敏）",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Slider(
+                                            value = displaySetting.bookmarkDragSensitivity,
+                                            onValueChange = {
+                                                updateDisplaySetting(displaySetting.copy(bookmarkDragSensitivity = it))
+                                            },
+                                            valueRange = 0.5f..2.0f,
+                                            steps = 14,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(text = "${(displaySetting.bookmarkDragSensitivity * 100).toInt()}%")
+                                    }
+                                }
+                            },
+                        )
+                        // 书签按钮可上下移动（长按≥3秒进入移动）的范围
+                        item(
+                            headlineContent = { Text("书签按钮移动范围") },
+                            supportingContent = {
+                                Column {
+                                    Text(
+                                        text = "长按≥3秒后可上下移动书签按钮的可达范围（占屏幕高度比例）",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Slider(
+                                            value = displaySetting.bookmarkDragRange,
+                                            onValueChange = {
+                                                updateDisplaySetting(displaySetting.copy(bookmarkDragRange = it))
+                                            },
+                                            valueRange = 0.4f..1.0f,
+                                            steps = 5,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(text = "${(displaySetting.bookmarkDragRange * 100).toInt()}%")
+                                    }
+                                }
+                            },
+                        )
                     }
                     item(
                         headlineContent = { Text(stringResource(R.string.setting_display_page_enable_auto_scroll_title)) },

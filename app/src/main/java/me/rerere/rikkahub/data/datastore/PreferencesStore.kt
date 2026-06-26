@@ -642,6 +642,10 @@ data class DisplaySetting(
     val photoImportGroupMinutes: Int = 2,
     // 导出 Markdown 时不包含图片（普通 Markdown 解析器不支持内嵌 base64 图片）
     val exportMarkdownExcludeImages: Boolean = false,
+    // 书签导航拖动灵敏度：越大每「档」需要拖动的距离越短（越灵敏）。0.5(迟钝)~2.0(灵敏)
+    val bookmarkDragSensitivity: Float = 1.0f,
+    // 书签按钮可上下移动的范围（占可用高度比例）。0.4~1.0
+    val bookmarkDragRange: Float = 1.0f,
 )
 
 // 电脑端 Screenshotter 服务端配置（仅本地局域网使用，IP+端口持久化）
