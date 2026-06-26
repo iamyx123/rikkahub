@@ -251,6 +251,7 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
         else -> {
             ModalNavigationDrawer(
                 drawerState = drawerState,
+                scrimColor = Color.Transparent,
                 drawerContent = {
                     ChatDrawerContent(
                         navController = navController,
@@ -505,8 +506,8 @@ private fun ChatPageContent(
                     vm.saveConversationAsync()
                 },
                 bookmarks = bookmarks,
-                onAddBookmark = { nodeId, scrollOffset ->
-                    vm.addBookmark(nodeId, scrollOffset)
+                onAddBookmark = { nodeId, scrollOffset, label ->
+                    vm.addBookmark(nodeId, scrollOffset, label)
                 },
                 onDeleteBookmark = { bookmarkId ->
                     vm.removeBookmark(bookmarkId)
@@ -778,11 +779,40 @@ private fun ChatFilesPickerSheet(
             addDocumentsFromUris(uris)
         }
 
-    // 第三方文件选择器(ACTION_GET_CONTENT)，可调起 MT管理器/MiXplorer 等第三方文件管理器并多选
+    // 第三方文件选择器：用 ACTION_GET_CONTENT + createChooser 强制弹出应用选择框，
+    // 这样 MT 管理器 / MiXplorer 等第三方文件管理器才会出现（Android 13/14 上 GetMultipleContents
+    // 会被系统直接路由到自带 DocumentsUI / 照片选择器，看不到第三方）。
     val thirdPartyFilePickerLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
-            addDocumentsFromUris(uris)
+        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == android.app.Activity.RESULT_OK) {
+                val data = result.data
+                val uris = buildList {
+                    val clip = data?.clipData
+                    if (clip != null) {
+                        for (i in 0 until clip.itemCount) {
+                            clip.getItemAt(i).uri?.let { add(it) }
+                        }
+                    } else {
+                        data?.data?.let { add(it) }
+                    }
+                }
+                addDocumentsFromUris(uris)
+            }
         }
+    val onLaunchThirdPartyFilePicker: () -> Unit = {
+        val getContent = android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).apply {
+            type = "*/*"
+            addCategory(android.content.Intent.CATEGORY_OPENABLE)
+            putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+        runCatching {
+            thirdPartyFilePickerLauncher.launch(
+                android.content.Intent.createChooser(getContent, "选择文件（可用第三方文件管理器）")
+            )
+        }.onFailure {
+            toaster.show("无法打开文件选择器: ${it.message ?: ""}", type = ToastType.Error)
+        }
+    }
 
     // 导入相册「最新一组照片」：需要读取相册权限
     val onImportLatestPhotos: () -> Unit = {
@@ -816,6 +846,7 @@ private fun ChatFilesPickerSheet(
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
     )
     ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
         sheetState = filesSheetState,
         onDismissRequest = { dismissAll() },
     ) {
@@ -858,7 +889,7 @@ private fun ChatFilesPickerSheet(
             onPickVideo = { videoPickerLauncher.launch("video/*") },
             onPickAudio = { audioPickerLauncher.launch("audio/*") },
             onPickFile = { filePickerLauncher.launch(arrayOf("*/*")) },
-            onPickFileThirdParty = { thirdPartyFilePickerLauncher.launch("*/*") },
+            onPickFileThirdParty = onLaunchThirdPartyFilePicker,
             onImportLatestPhotos = onImportLatestPhotos,
             onConfigurePhotoImport = { showPhotoImportConfig = true },
         )

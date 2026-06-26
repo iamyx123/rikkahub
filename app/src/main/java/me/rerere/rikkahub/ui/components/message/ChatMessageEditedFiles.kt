@@ -145,6 +145,7 @@ internal fun EditedFilesList(
         val path = selectedPath!!
         val fileName = remember(path) { path.substringAfterLast('/') }
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = { selectedPath = null },
             sheetState = rememberBottomSheetState(
                 initialValue = SheetValue.Hidden,

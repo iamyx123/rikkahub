@@ -392,6 +392,7 @@ private fun CustomThemeEditSheet(
     }
 
     ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
         onDismissRequest = onDismiss,
         sheetState = sheetState,
     ) {

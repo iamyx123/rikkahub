@@ -134,6 +134,7 @@ fun ChatExportSheet(
 
     if (visible) {
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = { if (!exporting) onDismissRequest() },
             sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)),
         ) {

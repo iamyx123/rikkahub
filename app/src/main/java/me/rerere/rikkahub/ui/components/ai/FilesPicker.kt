@@ -419,6 +419,7 @@ private fun InjectionQuickConfigSheet(
     val navController = LocalNavController.current
 
     ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
         onDismissRequest = onDismiss,
         sheetState = sheetState,
     ) {

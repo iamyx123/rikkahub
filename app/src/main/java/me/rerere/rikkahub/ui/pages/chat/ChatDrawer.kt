@@ -410,6 +410,7 @@ fun ChatDrawerContent(
     // 移动到助手 Bottom Sheet
     if (showMoveToAssistantSheet) {
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = {
                 showMoveToAssistantSheet = false
                 conversationToMove = null

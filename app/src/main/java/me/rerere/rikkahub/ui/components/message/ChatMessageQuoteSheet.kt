@@ -59,6 +59,7 @@ fun ChatMessageQuoteSheet(
     val textState = rememberTextFieldState(fullText)
 
     ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
         onDismissRequest = onDismissRequest,
         sheetState = rememberBottomSheetState(
             initialValue = SheetValue.Hidden,

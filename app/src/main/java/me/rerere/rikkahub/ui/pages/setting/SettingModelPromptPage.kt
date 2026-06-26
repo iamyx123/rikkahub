@@ -133,6 +133,7 @@ private fun PromptSettingItem(
 
     if (showEditor) {
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = { showEditor = false },
         ) {
             Column(

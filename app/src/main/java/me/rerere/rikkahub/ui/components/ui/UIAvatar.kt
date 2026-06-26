@@ -246,6 +246,7 @@ fun UIAvatar(
 
     if (showEmojiPicker) {
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = {
                 showEmojiPicker = false
             },

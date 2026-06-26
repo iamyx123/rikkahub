@@ -211,6 +211,7 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
 
     if (showResult) {
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             sheetState = rememberBottomSheetState(
                 initialValue = SheetValue.Hidden,
                 enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)

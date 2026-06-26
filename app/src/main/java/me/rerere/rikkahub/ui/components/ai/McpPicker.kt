@@ -114,6 +114,7 @@ fun McpPickerButton(
     }
     if (showMcpPicker) {
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = { showMcpPicker = false },
             sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
         ) {
@@ -227,6 +228,7 @@ private fun McpPickerSheet(
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
         onDismissRequest = onDismiss,
         sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
     ) {

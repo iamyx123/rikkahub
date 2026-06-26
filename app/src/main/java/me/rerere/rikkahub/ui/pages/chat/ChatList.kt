@@ -27,12 +27,15 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -80,6 +83,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -91,6 +98,8 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceAtLeast
 import androidx.compose.ui.zIndex
@@ -151,7 +160,7 @@ fun ChatList(
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
     bookmarks: List<MessageBookmark> = emptyList(),
-    onAddBookmark: (nodeId: Uuid, scrollOffset: Int) -> Unit = { _, _ -> },
+    onAddBookmark: (nodeId: Uuid, scrollOffset: Int, label: String) -> Unit = { _, _, _ -> },
     onDeleteBookmark: (Uuid) -> Unit = {},
     onQuote: (String) -> Unit = {},
 ) {
@@ -231,7 +240,7 @@ private fun ChatListNormal(
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
     bookmarks: List<MessageBookmark> = emptyList(),
-    onAddBookmark: (nodeId: Uuid, scrollOffset: Int) -> Unit = { _, _ -> },
+    onAddBookmark: (nodeId: Uuid, scrollOffset: Int, label: String) -> Unit = { _, _, _ -> },
     onDeleteBookmark: (Uuid) -> Unit = {},
     onQuote: (String) -> Unit = {},
 ) {
@@ -775,91 +784,95 @@ private fun BoxScope.MessageNavigator(
     state: LazyListState,
     conversation: Conversation,
     bookmarks: List<MessageBookmark>,
-    onAddBookmark: (nodeId: Uuid, scrollOffset: Int) -> Unit,
+    onAddBookmark: (nodeId: Uuid, scrollOffset: Int, label: String) -> Unit,
     onDeleteBookmark: (Uuid) -> Unit,
 ) {
     if (!show) return
-    val toaster = LocalToaster.current
+    val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
-    // 切换会话时自动折叠
+    val toaster = LocalToaster.current
     var expanded by rememberSaveable(conversation.id) { mutableStateOf(false) }
 
     val messageNodes = conversation.messageNodes
     val totalNodes = messageNodes.size
-
-    // nodeId -> index 映射，供书签跳转与有效性判断（O(1)）
     val nodeIndexById = remember(messageNodes) {
         buildMap { messageNodes.forEachIndexed { i, n -> put(n.id, i) } }
     }
-    // 只展示锚点仍存在的书签：节点被删除/重新生成后，旧书签自动隐藏
     val validBookmarks = remember(bookmarks, nodeIndexById) {
         bookmarks.filter { it.nodeId in nodeIndexById }
     }
 
-    Column(
-        modifier = Modifier
-            .align(if (onLeft) Alignment.CenterStart else Alignment.CenterEnd)
-            .padding(8.dp),
-        horizontalAlignment = if (onLeft) Alignment.Start else Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        // 展开的导航 + 书签面板（无动画，按需直接显示/隐藏）
+    BoxWithConstraints(modifier = Modifier.matchParentSize()) {
+        val maxWpx = constraints.maxWidth.toFloat()
+        val maxHpx = constraints.maxHeight.toFloat()
+        val buttonSize = 46.dp
+        val buttonSizePx = with(density) { buttonSize.toPx() }
+        val marginPx = with(density) { 6.dp.toPx() }
+        val stepPx = with(density) { 52.dp.toPx() }
+
+        // 7 档（顶/上2/上1/中/下1/下2/底）需要按钮上下各留 3 档空间，据此约束按钮可放置的纵向范围
+        val minY = 3 * stepPx + marginPx
+        val maxY = (maxHpx - buttonSizePx - 3 * stepPx - marginPx).coerceAtLeast(minY)
+        var buttonYpx by remember(conversation.id) { mutableStateOf(Float.NaN) }
+        val defaultY = (maxHpx / 2f - buttonSizePx / 2f).coerceIn(minY, maxY)
+        val anchorY = (if (buttonYpx.isNaN()) defaultY else buttonYpx).coerceIn(minY, maxY)
+        val anchorX = if (onLeft) marginPx else (maxWpx - buttonSizePx - marginPx)
+
+        // 拖动导航当前档位：-3顶 -2 -1 0中 1 2 3底；null=未拖动
+        var navDetent by remember { mutableStateOf<Int?>(null) }
+        var repositioning by remember { mutableStateOf(false) }
+
+        // 展开的书签面板：放在按钮靠屏幕中心的一侧、垂直对齐按钮，不移动按钮位置（收起即原位）
         if (expanded) {
-            // 进度：当前顶部可见节点 / 总节点。仅在展开时读取滚动状态，
-            // 折叠时不读取 -> 滚动不会触发本组件重组，避免墨水屏频繁刷新
-            val currentNodeIndex = state.firstVisibleItemIndex
-                .coerceIn(0, (totalNodes - 1).fastCoerceAtLeast(0))
+            var panelSize by remember { mutableStateOf(IntSize.Zero) }
+            val gapPx = with(density) { 8.dp.toPx() }
+            val panelX = if (onLeft) (anchorX + buttonSizePx + gapPx)
+            else (anchorX - panelSize.width - gapPx)
+            val panelY = (anchorY + buttonSizePx / 2f - panelSize.height / 2f)
+                .coerceIn(marginPx, (maxHpx - panelSize.height - marginPx).coerceAtLeast(marginPx))
             Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
-                tonalElevation = 6.dp,
-                shadowElevation = 3.dp,
+                modifier = Modifier
+                    .offset { IntOffset(panelX.roundToInt(), panelY.roundToInt()) }
+                    .onGloballyPositioned { panelSize = it.size }
+                    .widthIn(min = 160.dp, max = 240.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
             ) {
                 Column(
-                    modifier = Modifier
-                        .widthIn(min = 140.dp, max = 220.dp)
-                        .padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    // 进度指示器（上下回答切换指示器的子功能）
-                    Text(
-                        text = "${currentNodeIndex + 1} / ${totalNodes.fastCoerceAtLeast(1)}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-
-                    // 上一条 / 下一条 / 顶部 / 底部
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        NavIconButton(HugeIcons.ArrowUpDouble) {
-                            scope.launch { state.scrollToItem(0) }
-                        }
-                        NavIconButton(HugeIcons.ArrowUp01) {
-                            scope.launch {
-                                state.animateScrollToItem((state.firstVisibleItemIndex - 1).fastCoerceAtLeast(0))
-                            }
-                        }
-                        NavIconButton(HugeIcons.ArrowDown01) {
-                            scope.launch { state.animateScrollToItem(state.firstVisibleItemIndex + 1) }
-                        }
-                        NavIconButton(HugeIcons.ArrowDownDouble) {
-                            scope.launch {
-                                state.scrollToItem((state.layoutInfo.totalItemsCount - 1).fastCoerceAtLeast(0))
-                            }
-                        }
+                    val cur = state.firstVisibleItemIndex.coerceIn(0, (totalNodes - 1).fastCoerceAtLeast(0))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("书签", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            text = "${cur + 1}/${totalNodes.fastCoerceAtLeast(1)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-
-                    HorizontalDivider(modifier = Modifier.fillMaxWidth())
-
-                    // 新增书签（锚定当前顶部可见回答）
+                    // 在当前阅读位置新增书签（标签带「第几条 + 百分比 + 片段」，反映实际定位而非回答开头）
                     Surface(
                         onClick = {
-                            val idx = state.firstVisibleItemIndex
-                                .coerceIn(0, (totalNodes - 1).fastCoerceAtLeast(0))
-                            val nodeId = messageNodes.getOrNull(idx)?.id
-                            if (nodeId != null) {
-                                onAddBookmark(nodeId, state.firstVisibleItemScrollOffset)
+                            val idx = state.firstVisibleItemIndex.coerceIn(0, (totalNodes - 1).fastCoerceAtLeast(0))
+                            val node = messageNodes.getOrNull(idx)
+                            if (node != null) {
+                                val offset = state.firstVisibleItemScrollOffset
+                                val itemSize = state.layoutInfo.visibleItemsInfo.firstOrNull { it.index == idx }?.size ?: 0
+                                val pct = if (itemSize > 0) ((offset.toFloat() / itemSize).coerceIn(0f, 1f) * 100).roundToInt() else 0
+                                val snippet = runCatching { node.currentMessage.toText() }.getOrNull()
+                                    ?.trim()?.replace('\n', ' ')?.take(16)?.ifBlank { null }
+                                val label = buildString {
+                                    append("第${idx + 1}条")
+                                    if (pct > 2) append(" ·${pct}%")
+                                    if (snippet != null) append("  ").append(snippet)
+                                }
+                                onAddBookmark(node.id, offset, label)
                                 toaster.show("已添加书签", type = ToastType.Success)
                             }
                         },
@@ -868,29 +881,31 @@ private fun BoxScope.MessageNavigator(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Icon(
-                                imageVector = HugeIcons.BookmarkAdd01,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                            )
+                            Icon(HugeIcons.BookmarkAdd01, null, modifier = Modifier.size(16.dp))
                             Text(
-                                text = "新增书签",
+                                text = "在当前位置新增书签",
                                 style = MaterialTheme.typography.labelMedium,
                                 maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
-
-                    // 书签地图：短按跳转，长按删除
-                    if (validBookmarks.isNotEmpty()) {
+                    HorizontalDivider(modifier = Modifier.fillMaxWidth())
+                    if (validBookmarks.isEmpty()) {
+                        Text(
+                            text = "暂无书签（按住按钮上下拖动可快速翻页）",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        )
+                    } else {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 200.dp)
+                                .heightIn(max = 240.dp)
                                 .verticalScroll(rememberScrollState()),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
@@ -898,9 +913,7 @@ private fun BoxScope.MessageNavigator(
                                 val idx = nodeIndexById[bm.nodeId] ?: 0
                                 BookmarkRow(
                                     label = bm.label.ifBlank { "第 ${idx + 1} 条" },
-                                    onClick = {
-                                        scope.launch { state.scrollToItem(idx, bm.scrollOffset) }
-                                    },
+                                    onClick = { scope.launch { state.scrollToItem(idx, bm.scrollOffset) } },
                                     onLongClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         onDeleteBookmark(bm.id)
@@ -909,61 +922,141 @@ private fun BoxScope.MessageNavigator(
                                 )
                             }
                         }
-                    } else {
-                        Text(
-                            text = "暂无书签",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        )
                     }
                 }
             }
         }
 
-        // 常驻切换按钮：折叠时仅此一个、半透明；展开时高亮、点击收起
-        Surface(
-            onClick = { expanded = !expanded },
-            shape = CircleShape,
-            color = if (expanded) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp).copy(alpha = 0.4f)
-            },
-            contentColor = if (expanded) {
-                MaterialTheme.colorScheme.onPrimary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            shadowElevation = if (expanded) 2.dp else 0.dp,
-        ) {
-            Icon(
-                imageVector = if (expanded) HugeIcons.Cancel01 else HugeIcons.Bookmark01,
-                contentDescription = "消息导航",
+        // 拖动导航的「凸出」指示器：显示在按钮靠中心一侧（避免手指遮挡），仅在卡到新档位时变化
+        navDetent?.let { d ->
+            val (icon, label) = detentLabel(d)
+            val indWpx = with(density) { 104.dp.toPx() }
+            val gap = with(density) { 8.dp.toPx() }
+            val indX = if (onLeft) (anchorX + buttonSizePx + gap) else (anchorX - indWpx - gap)
+            Surface(
                 modifier = Modifier
-                    .padding(8.dp)
-                    .size(20.dp),
-            )
+                    .offset { IntOffset(indX.roundToInt(), anchorY.roundToInt()) }
+                    .size(width = 104.dp, height = buttonSize),
+                shape = RoundedCornerShape(12.dp),
+                color = if (d == 0) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.primary,
+                contentColor = if (d == 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimary,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (icon != null) {
+                        Icon(icon, null, modifier = Modifier.size(16.dp))
+                    }
+                    Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                }
+            }
+        }
+
+        // 常驻按钮：位置固定（收起即在原位）。轻点=展开/收起书签面板；按住上下拖=定格快速翻页；长按≥3秒=进入移动模式
+        Surface(
+            modifier = Modifier
+                .offset { IntOffset(anchorX.roundToInt(), anchorY.roundToInt()) }
+                .size(buttonSize)
+                .pointerInput(maxWpx, maxHpx, onLeft) {
+                    val slop = viewConfiguration.touchSlop
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        var mode = 0 // 0=未定 1=导航 2=移动
+                        val startY = down.position.y
+                        // 长按满 3 秒（其间几乎不动）才进入「移动按钮」模式，避免误触
+                        val longPress = scope.launch {
+                            delay(3000)
+                            if (mode == 0) {
+                                mode = 2
+                                repositioning = true
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                        }
+                        try {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (change.changedToUp()) break
+                                val dy = change.position.y - startY
+                                if (mode == 0 && kotlin.math.abs(dy) > slop) {
+                                    mode = 1
+                                    longPress.cancel()
+                                    haptic.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+                                    navDetent = 0
+                                }
+                                if (mode == 1) {
+                                    val d = (dy / stepPx).roundToInt().coerceIn(-3, 3)
+                                    if (d != navDetent) {
+                                        navDetent = d
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    }
+                                    change.consume() // 屏蔽底层列表滚动，避免拖动书签时画面意外滚动
+                                } else if (mode == 2) {
+                                    val curY = if (buttonYpx.isNaN()) defaultY else buttonYpx
+                                    buttonYpx = (curY + change.positionChange().y).coerceIn(minY, maxY)
+                                    change.consume()
+                                }
+                            }
+                        } finally {
+                            longPress.cancel()
+                            when (mode) {
+                                1 -> {
+                                    val d = navDetent ?: 0
+                                    navDetent = null
+                                    performDetentNav(d, scope, state)
+                                }
+
+                                2 -> repositioning = false
+                                else -> expanded = !expanded
+                            }
+                        }
+                    }
+                },
+            shape = CircleShape,
+            color = if (expanded || repositioning) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp).copy(alpha = 0.45f),
+            contentColor = if (expanded || repositioning) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            border = if (repositioning) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (expanded) HugeIcons.Cancel01 else HugeIcons.Bookmark01,
+                    contentDescription = "消息导航",
+                    modifier = Modifier.padding(11.dp),
+                )
+            }
         }
     }
 }
 
-@Composable
-private fun NavIconButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit,
-) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp),
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier
-                .padding(6.dp)
-                .size(18.dp),
-        )
+private fun detentLabel(d: Int): Pair<androidx.compose.ui.graphics.vector.ImageVector?, String> = when (d) {
+    -3 -> HugeIcons.ArrowUpDouble to "回到顶部"
+    -2 -> HugeIcons.ArrowUp01 to "上两条"
+    -1 -> HugeIcons.ArrowUp01 to "上一条"
+    1 -> HugeIcons.ArrowDown01 to "下一条"
+    2 -> HugeIcons.ArrowDown01 to "下两条"
+    3 -> HugeIcons.ArrowDownDouble to "回到底部"
+    else -> null to "松手取消"
+}
+
+private fun performDetentNav(d: Int, scope: CoroutineScope, state: LazyListState) {
+    scope.launch {
+        val first = state.firstVisibleItemIndex
+        val total = state.layoutInfo.totalItemsCount
+        when (d) {
+            -3 -> state.animateScrollToItem(0)
+            -2 -> state.animateScrollToItem((first - 2).coerceAtLeast(0))
+            -1 -> state.animateScrollToItem((first - 1).coerceAtLeast(0))
+            1 -> state.animateScrollToItem(first + 1)
+            2 -> state.animateScrollToItem(first + 2)
+            3 -> state.animateScrollToItem((total - 1).coerceAtLeast(0))
+            else -> {}
+        }
     }
 }
 
@@ -982,7 +1075,7 @@ private fun BookmarkRow(
             modifier = Modifier
                 .clip(RoundedCornerShape(10.dp))
                 .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-                .padding(horizontal = 10.dp, vertical = 6.dp),
+                .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {

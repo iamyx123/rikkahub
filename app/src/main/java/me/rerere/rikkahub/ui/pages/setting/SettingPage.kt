@@ -429,7 +429,8 @@ private val QQ_GROUPS = listOf(
 @Composable
 private fun QQGroupBottomSheet(onDismiss: () -> Unit) {
     val context = LocalContext.current
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

@@ -247,6 +247,7 @@ private fun RecommendProviderButton(
 
     if (showSheet) {
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = { showSheet = false },
             sheetState = rememberBottomSheetState(
                 initialValue = SheetValue.Hidden,

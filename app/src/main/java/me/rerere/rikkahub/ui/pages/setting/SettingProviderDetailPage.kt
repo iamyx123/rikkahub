@@ -764,6 +764,7 @@ private fun AddModelButton(
         dialogState.currentState?.let { modelState ->
             val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
             ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
                 onDismissRequest = {
                     dialogState.dismiss()
                 },
@@ -847,6 +848,7 @@ private fun ModelPicker(
     var showModal by remember { mutableStateOf(false) }
     if (showModal) {
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = { showModal = false },
             sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)),
         ) {
@@ -1174,6 +1176,7 @@ private fun ModelCard(
         dialogState.currentState?.let { editingModel ->
             val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
             ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
                 onDismissRequest = {
                     dialogState.dismiss()
                 },
@@ -1511,6 +1514,7 @@ private fun ProviderOverrideSettings(
         // Provider configuration modal
         if (showProviderConfig && editingProvider != null) {
             ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
                 onDismissRequest = {
                     showProviderConfig = false
                     editingProvider = null

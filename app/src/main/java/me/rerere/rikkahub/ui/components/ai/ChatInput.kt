@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -72,6 +74,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -146,6 +149,11 @@ fun ChatInput(
     val assistant = settings.getCurrentAssistant()
     val hazeTintColor = MaterialTheme.colorScheme.surfaceContainerLow
     val inputHazeStyle = HazeMaterials.thin(containerColor = hazeTintColor)
+
+    // 输入框被输入法顶起时（键盘弹出）自动取消透明，保证输入可读；键盘收起时恢复用户设定的透明度，
+    // 让背景透出更美观。用 imeAnimationTarget 仅在「最终是否显示键盘」上翻转一次，避免逐帧刷新墨水屏。
+    val imeVisible = WindowInsets.imeAnimationTarget.getBottom(LocalDensity.current) > 0
+    val effectiveInputOpacity = if (imeVisible) 1f else settings.displaySetting.inputOpacity
 
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -222,14 +230,14 @@ fun ChatInput(
                 border = BorderStroke(
                     1.dp,
                     MaterialTheme.colorScheme.outlineVariant.copy(
-                        alpha = 0.5f * (if (settings.displaySetting.enableBlurEffect) 1f else settings.displaySetting.inputOpacity)
+                        alpha = 0.5f * (if (settings.displaySetting.enableBlurEffect) 1f else effectiveInputOpacity)
                     )
                 ),
-                // 未启用毛玻璃时，支持普通透明度调节（inputOpacity）；毛玻璃模式仍走透明背景
+                // 未启用毛玻璃时，支持普通透明度调节（inputOpacity）；键盘弹起时强制不透明保可读
                 color = if (settings.displaySetting.enableBlurEffect) {
                     Color.Transparent
                 } else {
-                    hazeTintColor.copy(alpha = settings.displaySetting.inputOpacity)
+                    hazeTintColor.copy(alpha = effectiveInputOpacity)
                 },
             ) {
                 Column(

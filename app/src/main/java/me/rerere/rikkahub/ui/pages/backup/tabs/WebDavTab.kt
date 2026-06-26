@@ -306,6 +306,7 @@ fun WebDavTab(
 
     if (showBackupFiles) {
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = {
                 showBackupFiles = false
             },

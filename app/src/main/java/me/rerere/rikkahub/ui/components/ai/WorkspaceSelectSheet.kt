@@ -43,6 +43,7 @@ internal fun WorkspaceSelectSheet(
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
         onDismissRequest = onDismiss,
         sheetState = rememberBottomSheetState(
             initialValue = SheetValue.Hidden,

@@ -128,6 +128,7 @@ fun UpdateCard(vm: ChatVM) {
                 toaster.show(context.getString(R.string.update_card_downloading), type = ToastType.Info)
             }
             ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
                 onDismissRequest = { showDetail = false },
                 sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)),
             ) {

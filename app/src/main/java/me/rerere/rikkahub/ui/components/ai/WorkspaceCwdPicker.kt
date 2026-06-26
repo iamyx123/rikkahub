@@ -74,7 +74,8 @@ fun WorkspaceCwdPickerSheet(
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()

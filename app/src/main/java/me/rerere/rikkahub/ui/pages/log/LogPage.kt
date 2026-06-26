@@ -133,6 +133,7 @@ private fun UnifiedLogList(
 
     selectedLog?.let { log ->
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = { selectedLog = null },
             sheetState = sheetState
         ) {

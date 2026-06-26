@@ -267,6 +267,7 @@ private fun TestResultItem(
             state.error.stackTraceToString()
         }
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = { showErrorSheet = false },
             sheetState = sheetState,
         ) {

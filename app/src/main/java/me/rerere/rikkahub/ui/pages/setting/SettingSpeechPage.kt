@@ -164,6 +164,7 @@ fun SettingSpeechPage(vm: SettingVM = koinViewModel()) {
         var currentProvider by remember(provider) { mutableStateOf(provider) }
 
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = {
                 editingTTSProvider = null
             },
@@ -227,6 +228,7 @@ fun SettingSpeechPage(vm: SettingVM = koinViewModel()) {
         var currentProvider by remember(provider) { mutableStateOf(provider) }
 
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = {
                 editingASRProvider = null
             },
@@ -461,6 +463,7 @@ private fun AddTTSProviderButton(onAdd: (TTSProviderSetting) -> Unit) {
     if (showBottomSheet) {
         val bottomSheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = {
                 showBottomSheet = false
             },
@@ -579,6 +582,7 @@ private fun AddASRProviderButton(onAdd: (ASRProviderSetting) -> Unit) {
     if (showBottomSheet) {
         val bottomSheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = {
                 showBottomSheet = false
             },

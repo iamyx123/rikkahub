@@ -324,9 +324,9 @@ class ChatVM(
     }
 
     /**
-     * 新增阅读书签，锚定到 [nodeId]。
-     * 同时清理掉指向「已不存在节点」的失效书签（节点被删除/重生成会导致 id 消失）。
-     * label 为空时自动取该回答的开头文字作为标题，便于在书签地图里辨认。
+     * 新增阅读书签，锚定到 [nodeId] 的某个滚动位置 [scrollOffset]。
+     * 允许同一条 AI 回答中存在多个不同位置的书签（仅去除位置几乎相同的重复）。
+     * 同时清理掉指向「已不存在节点」的失效书签。label 由 UI 传入（含位置信息），为空时退回取回答开头文字。
      */
     fun addBookmark(nodeId: Uuid, scrollOffset: Int, label: String = "") {
         viewModelScope.launch {
@@ -337,19 +337,19 @@ class ChatVM(
                 nodes.firstOrNull { it.id == nodeId }
                     ?.runCatching { currentMessage.toText() }?.getOrNull()
                     ?.trim()?.replace('\n', ' ')?.take(30)?.ifBlank { null }
-                    ?: ""
+                    ?: "书签"
             }
             val key = _conversationId.toString()
-            val bookmark = MessageBookmark(
-                nodeId = nodeId,
-                scrollOffset = scrollOffset.coerceAtLeast(0),
-                label = autoLabel,
-            )
+            val offset = scrollOffset.coerceAtLeast(0)
+            val bookmark = MessageBookmark(nodeId = nodeId, scrollOffset = offset, label = autoLabel)
             settingsStore.updateConversationBookmarks { map ->
                 val existing = (map[key] ?: emptyList()).filter { it.nodeId in validIds }
-                // 同一节点已存在书签则覆盖其滚动位置，避免重复堆积
-                val deduped = existing.filterNot { it.nodeId == nodeId }
-                map + (key to (deduped + bookmark).sortedBy { node -> nodes.indexOfFirst { it.id == node.nodeId } })
+                // 仅当同节点且滚动位置几乎一致时视为重复（保留一个），否则允许并存
+                val deduped = existing.filterNot {
+                    it.nodeId == nodeId && kotlin.math.abs(it.scrollOffset - offset) < 24
+                }
+                val nodeOrder: (MessageBookmark) -> Int = { bm -> nodes.indexOfFirst { it.id == bm.nodeId } }
+                map + (key to (deduped + bookmark).sortedWith(compareBy(nodeOrder, { it.scrollOffset })))
             }
         }
     }

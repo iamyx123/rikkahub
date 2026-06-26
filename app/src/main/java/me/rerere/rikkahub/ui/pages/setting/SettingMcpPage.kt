@@ -361,6 +361,7 @@ private fun McpServerConfigModal(state: EditState<McpServerConfig>) {
         val pagerState = rememberPagerState { 2 }
         val scope = rememberCoroutineScope()
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = {
                 state.dismiss()
             },
@@ -949,6 +950,7 @@ private fun McpImportModal(
     val parseErrorMsg = stringResource(R.string.setting_mcp_page_import_parse_error)
 
     ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
         onDismissRequest = onDismiss,
         sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
     ) {

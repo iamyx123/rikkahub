@@ -325,6 +325,7 @@ private fun AssistantCreationSheet(
 ) {
     state.EditStateContent { assistant, update ->
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = {
                 state.dismiss()
             },
@@ -490,6 +491,7 @@ private fun AssistantActionSheet(
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
         onDismissRequest = onDismiss
     ) {
         Column(

@@ -147,6 +147,7 @@ fun WebViewPage(url: String, content: String) {
 
     if (showConsoleSheet) {
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = { showConsoleSheet = false },
             sheetState = sheetState
         ) {

@@ -690,6 +690,7 @@ private fun SettingsBottomSheet(
     onDismiss: () -> Unit
 ) {
     ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         dragHandle = { BottomSheetDefaults.DragHandle() }

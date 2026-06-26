@@ -7,6 +7,7 @@ import me.rerere.hugeicons.stroke.File02
 import me.rerere.hugeicons.stroke.Github
 import me.rerere.hugeicons.stroke.SmartPhone01
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -114,26 +115,54 @@ fun SettingAboutPage() {
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        AsyncImage(
-                            model = R.mipmap.ic_launcher,
-                            contentDescription = "Logo",
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .size(150.dp)
-                                .onGloballyPositioned { coordinates ->
-                                    val position = coordinates.positionInParent()
-                                    val size = coordinates.size
-                                    logoCenterPx = Offset(
-                                        position.x + size.width / 2f,
-                                        position.y + size.height / 2f
-                                    )
-                                }
-                                .clickable {
-                                    onBurst(logoCenterPx, null)
-                                }
-                        )
+                        // 应用图标 与 作者头像 并排（对称），作者头像略小、纯黑
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                        ) {
+                            AsyncImage(
+                                model = R.mipmap.ic_launcher,
+                                contentDescription = "Logo",
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .size(150.dp)
+                                    .onGloballyPositioned { coordinates ->
+                                        val position = coordinates.positionInParent()
+                                        val size = coordinates.size
+                                        logoCenterPx = Offset(
+                                            position.x + size.width / 2f,
+                                            position.y + size.height / 2f
+                                        )
+                                    }
+                                    .clickable {
+                                        onBurst(logoCenterPx, null)
+                                    }
+                            )
 
-                        // RikkaHub × iamyx33：本墨水屏优化版由 iamyx33 与 RikkaHub 共创
+                            // 作者纯黑头像（点击掉落爱心 + 757520 彩蛋），略小于应用图标
+                            Box(
+                                modifier = Modifier
+                                    .size(130.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black)
+                                    .border(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                                        CircleShape
+                                    )
+                                    .onGloballyPositioned { coordinates ->
+                                        val position = coordinates.positionInParent()
+                                        val size = coordinates.size
+                                        authorAvatarCenterPx = Offset(
+                                            position.x + size.width / 2f,
+                                            position.y + size.height / 2f
+                                        )
+                                    }
+                                    .clickable { onBurst(authorAvatarCenterPx, authorEmojis) },
+                            )
+                        }
+
+                        // RikkaHub × iamyx33（共创）
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -149,30 +178,6 @@ fun SettingAboutPage() {
                                 ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            // 黑色头像：点击掉落作者专属彩蛋
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black)
-                                    .onGloballyPositioned { coordinates ->
-                                        val position = coordinates.positionInParent()
-                                        val size = coordinates.size
-                                        authorAvatarCenterPx = Offset(
-                                            position.x + size.width / 2f,
-                                            position.y + size.height / 2f
-                                        )
-                                    }
-                                    .clickable { onBurst(authorAvatarCenterPx, authorEmojis) },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = "Y",
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
                             // 作者名：点击查看开发介绍
                             Text(
                                 text = "iamyx33",
@@ -246,11 +251,11 @@ fun SettingAboutPage() {
                         Text("合上")
                     }
                 },
-                title = { Text("iamyx33 · 共创者手记") },
+                title = { Text("关于 iamyx33") },
                 text = {
                     Text(
-                        text = "在一所封闭式高中的窗内，时间被钟声切成整齐的段落。我是 iamyx33，一名高二的学生，" +
-                            "也是一个习惯把世界轻轻收进心里、再慢慢感受的 INFP。\n\n" +
+                        text = "在一所封闭式高中的窗内，时间被钟声切成整齐的段落。我是 iamyx33，一名 2027 届高考生，" +
+                            "也是一个习惯把世界轻轻收进心里、再慢慢感受的人。\n\n" +
                             "是这块小小的电子墨水屏，让 AI 成为我求学路上的同行者——在每一个需要安静思考的夜里，" +
                             "它的流畅与稳定替我挡住了浮躁，也照亮了书页之间通往远方的小路。一路走来，受益匪浅。\n\n" +
                             "这一版，是我为墨水屏量身打磨的优化：更少的闪烁，更稳的笔触，让阅读与思考都更接近纸张本来的温度，" +

@@ -37,6 +37,7 @@ fun ShareSheet(
     val context = LocalContext.current
     if (state.isShow) {
         ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
             onDismissRequest = {
                 state.dismiss()
             },

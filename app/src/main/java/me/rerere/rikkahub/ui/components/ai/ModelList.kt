@@ -262,6 +262,7 @@ fun ModelListSheet(
     }
 
     ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
         onDismissRequest = {
             state.close()
         },

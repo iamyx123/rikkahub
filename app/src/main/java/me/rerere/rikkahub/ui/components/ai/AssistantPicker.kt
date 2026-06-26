@@ -134,6 +134,7 @@ private fun AssistantPickerSheet(
     }
 
     ModalBottomSheet(
+        scrimColor = androidx.compose.ui.graphics.Color.Transparent,
         onDismissRequest = onDismiss,
         sheetState = sheetState,
     ) {
