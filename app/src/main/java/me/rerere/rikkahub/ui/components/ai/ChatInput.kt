@@ -64,6 +64,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -217,8 +219,18 @@ fun ChatInput(
                     ),
                 shape = MaterialTheme.shapes.largeIncreased,
                 tonalElevation = 0.dp,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                color = if (settings.displaySetting.enableBlurEffect) Color.Transparent else hazeTintColor,
+                border = BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(
+                        alpha = 0.5f * (if (settings.displaySetting.enableBlurEffect) 1f else settings.displaySetting.inputOpacity)
+                    )
+                ),
+                // 未启用毛玻璃时，支持普通透明度调节（inputOpacity）；毛玻璃模式仍走透明背景
+                color = if (settings.displaySetting.enableBlurEffect) {
+                    Color.Transparent
+                } else {
+                    hazeTintColor.copy(alpha = settings.displaySetting.inputOpacity)
+                },
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -453,6 +465,17 @@ private fun TextInputRow(
         var isFocused by remember { mutableStateOf(false) }
         var isFullScreen by remember { mutableStateOf(false) }
         var completionList by remember { mutableStateOf<ChatCompletionList?>(null) }
+
+        // 外部（如远程截图完成后）可通过 state.requestInputFocus() 让输入框立即获取焦点并弹出键盘，
+        // 避免被全屏 Toast 浮层挡住、需要再点一次输入框的问题。
+        val inputFocusRequester = remember { FocusRequester() }
+        val keyboardController = LocalSoftwareKeyboardController.current
+        LaunchedEffect(state.focusRequestTick) {
+            if (state.focusRequestTick > 0) {
+                runCatching { inputFocusRequester.requestFocus() }
+                keyboardController?.show()
+            }
+        }
         val receiveContentListener = remember(
             settings.displaySetting.pasteLongTextAsFile, settings.displaySetting.pasteLongTextThreshold
         ) {
@@ -548,6 +571,7 @@ private fun TextInputRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("chat_input")
+                    .focusRequester(inputFocusRequester)
                     .contentReceiver(receiveContentListener)
                     .onFocusChanged { isFocused = it.isFocused },
                 keyboardOptions = KeyboardOptions(
@@ -593,6 +617,7 @@ private fun TextInputRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("chat_input")
+                    .focusRequester(inputFocusRequester)
                     .contentReceiver(receiveContentListener)
                     .onFocusChanged {
                         isFocused = it.isFocused

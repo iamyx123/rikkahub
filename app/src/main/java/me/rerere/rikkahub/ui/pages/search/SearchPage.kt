@@ -290,7 +290,8 @@ private fun SearchResultItem(
                 break
             }
             val matched = snippet.substring(start + 1, end)
-            withStyle(SpanStyle(background = highlightColor)) {
+            // 墨水屏优化：用加粗代替背景色高亮，避免遮挡文字
+            withStyle(SpanStyle(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)) {
                 append(matched)
             }
             index = end + 1

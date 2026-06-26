@@ -15,8 +15,10 @@ import me.rerere.hugeicons.stroke.Wrench01
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -84,6 +87,7 @@ import me.rerere.highlight.Highlighter
 import me.rerere.highlight.LocalHighlighter
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.ui.components.message.MessagePartBlock
@@ -122,11 +126,15 @@ fun ChatExportSheet(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val settings = LocalSettings.current
+    val settingsStore = koinInject<SettingsStore>()
     var imageExportOptions by remember { mutableStateOf(ImageExportOptions()) }
+    // 是否正在导出（超长图片可能耗时，期间显示进度并禁用按钮）
+    var exporting by remember { mutableStateOf(false) }
+    val excludeImages = settings.displaySetting.exportMarkdownExcludeImages
 
     if (visible) {
         ModalBottomSheet(
-            onDismissRequest = onDismissRequest,
+            onDismissRequest = { if (!exporting) onDismissRequest() },
             sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)),
         ) {
             Column(
@@ -141,27 +149,59 @@ fun ChatExportSheet(
                 val markdownSuccessMessage =
                     stringResource(id = R.string.chat_page_export_success, "Markdown")
                 OutlinedCard(
-                    onClick = {
-                        exportToMarkdown(context, conversation, selectedMessages)
-                        toaster.show(
-                            markdownSuccessMessage,
-                            type = ToastType.Success
-                        )
-                        onDismissRequest()
-                    },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    ListItem(
-                        headlineContent = {
-                            Text(stringResource(id = R.string.chat_page_export_markdown))
-                        },
-                        supportingContent = {
-                            Text(stringResource(id = R.string.chat_page_export_markdown_desc))
-                        },
-                        leadingContent = {
-                            Icon(HugeIcons.File02, contentDescription = null)
+                    Column {
+                        ListItem(
+                            headlineContent = {
+                                Text(stringResource(id = R.string.chat_page_export_markdown))
+                            },
+                            supportingContent = {
+                                Text(stringResource(id = R.string.chat_page_export_markdown_desc))
+                            },
+                            leadingContent = {
+                                Icon(HugeIcons.File02, contentDescription = null)
+                            }
+                        )
+
+                        HorizontalDivider()
+
+                        // 不含图片：普通 Markdown 解析器不支持内嵌 base64 图片，开启后导出更干净。记忆该选择。
+                        ListItem(
+                            headlineContent = { Text("不含图片") },
+                            supportingContent = { Text("导出的 Markdown 不嵌入图片（兼容常见解析器）") },
+                            trailingContent = {
+                                Switch(
+                                    checked = excludeImages,
+                                    onCheckedChange = { checked ->
+                                        scope.launch {
+                                            settingsStore.update { s ->
+                                                s.copy(displaySetting = s.displaySetting.copy(exportMarkdownExcludeImages = checked))
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Button(
+                                enabled = !exporting,
+                                onClick = {
+                                    exportToMarkdown(context, conversation, selectedMessages, excludeImages)
+                                    toaster.show(markdownSuccessMessage, type = ToastType.Success)
+                                    onDismissRequest()
+                                }
+                            ) {
+                                Text(stringResource(R.string.mermaid_export))
+                            }
                         }
-                    )
+                    }
                 }
 
                 val imageSuccessMessage =
@@ -200,12 +240,25 @@ fun ChatExportSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.End
                         ) {
+                            // 进度指示：超长图片导出耗时，给出明确反馈
+                            if (exporting) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                                Text(
+                                    text = "正在导出，请稍候…",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(start = 8.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
                             Button(
+                                enabled = !exporting,
                                 onClick = {
+                                    exporting = true
                                     scope.launch {
-                                        runCatching {
+                                        val result = runCatching {
                                             exportToImage(
                                                 context = context,
                                                 scope = scope,
@@ -215,19 +268,21 @@ fun ChatExportSheet(
                                                 settings = settings,
                                                 options = imageExportOptions
                                             )
-                                        }.onFailure {
-                                            it.printStackTrace()
-                                            toaster.show(
-                                                message = "Failed to export image: ${it.message}",
-                                                type = ToastType.Error
-                                            )
                                         }
+                                        exporting = false
+                                        result
+                                            .onSuccess {
+                                                toaster.show(imageSuccessMessage, type = ToastType.Success)
+                                                onDismissRequest()
+                                            }
+                                            .onFailure {
+                                                it.printStackTrace()
+                                                toaster.show(
+                                                    message = "导出图片失败: ${it.message}",
+                                                    type = ToastType.Error
+                                                )
+                                            }
                                     }
-                                    toaster.show(
-                                        imageSuccessMessage,
-                                        type = ToastType.Success
-                                    )
-                                    onDismissRequest()
                                 }
                             ) {
                                 Text(stringResource(R.string.mermaid_export))
@@ -243,7 +298,8 @@ fun ChatExportSheet(
 private fun exportToMarkdown(
     context: Context,
     conversation: Conversation,
-    messages: List<UIMessage>
+    messages: List<UIMessage>,
+    excludeImages: Boolean = false,
 ) {
     val filename = "chat-export-${LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"))}.md"
 
@@ -262,8 +318,11 @@ private fun exportToMarkdown(
                     }
 
                     is UIMessagePart.Image -> {
-                        append("![Image](${part.encodeBase64().getOrNull()?.base64})")
-                        appendLine()
+                        // 普通 Markdown 解析器不支持内嵌 base64 图片，按需省略
+                        if (!excludeImages) {
+                            append("![Image](${part.encodeBase64().getOrNull()?.base64})")
+                            appendLine()
+                        }
                     }
 
                     is UIMessagePart.Reasoning -> {
@@ -318,8 +377,10 @@ private fun exportToMarkdown(
                                     }
 
                                     is UIMessagePart.Image -> {
-                                        append("![Tool Image](${outputPart.encodeBase64().getOrNull()?.base64})")
-                                        appendLine()
+                                        if (!excludeImages) {
+                                            append("![Tool Image](${outputPart.encodeBase64().getOrNull()?.base64})")
+                                            appendLine()
+                                        }
                                     }
 
                                     is UIMessagePart.Document -> {

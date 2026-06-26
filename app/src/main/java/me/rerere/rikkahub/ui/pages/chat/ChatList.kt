@@ -6,6 +6,8 @@ import me.rerere.hugeicons.stroke.ArrowDown01
 import me.rerere.hugeicons.stroke.ArrowUp01
 import me.rerere.hugeicons.stroke.ArrowDownDouble
 import me.rerere.hugeicons.stroke.ArrowUpDouble
+import me.rerere.hugeicons.stroke.Bookmark01
+import me.rerere.hugeicons.stroke.BookmarkAdd01
 import me.rerere.hugeicons.stroke.CursorPointer01
 import me.rerere.hugeicons.stroke.Search01
 import me.rerere.hugeicons.stroke.Cancel01
@@ -21,8 +23,13 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -33,9 +40,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
@@ -45,6 +54,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,16 +77,18 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalScrollCaptureInProgress
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -84,6 +96,7 @@ import androidx.compose.ui.util.fastCoerceAtLeast
 import androidx.compose.ui.zIndex
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
+import com.dokar.sonner.ToastType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -92,6 +105,7 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.getAssistantById
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.MessageBookmark
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.ui.components.message.ChatMessage
@@ -99,6 +113,7 @@ import me.rerere.rikkahub.ui.components.ui.ErrorCardsDisplay
 import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.RabbitLoadingIndicator
 import me.rerere.rikkahub.ui.components.ui.Tooltip
+import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.ImeLazyListAutoScroller
 import me.rerere.rikkahub.ui.theme.ChatFontProvider
 import me.rerere.rikkahub.utils.plus
@@ -135,6 +150,10 @@ fun ChatList(
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
+    bookmarks: List<MessageBookmark> = emptyList(),
+    onAddBookmark: (nodeId: Uuid, scrollOffset: Int) -> Unit = { _, _ -> },
+    onDeleteBookmark: (Uuid) -> Unit = {},
+    onQuote: (String) -> Unit = {},
 ) {
     AnimatedContent(
         targetState = previewMode,
@@ -177,6 +196,10 @@ fun ChatList(
                 onToolAnswer = onToolAnswer,
                 onToggleFavorite = onToggleFavorite,
                 onConversationSystemPromptChange = onConversationSystemPromptChange,
+                bookmarks = bookmarks,
+                onAddBookmark = onAddBookmark,
+                onDeleteBookmark = onDeleteBookmark,
+                onQuote = onQuote,
             )
         }
     }
@@ -207,10 +230,13 @@ private fun ChatListNormal(
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
+    bookmarks: List<MessageBookmark> = emptyList(),
+    onAddBookmark: (nodeId: Uuid, scrollOffset: Int) -> Unit = { _, _ -> },
+    onDeleteBookmark: (Uuid) -> Unit = {},
+    onQuote: (String) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val loadingState by rememberUpdatedState(loading)
-    var isRecentScroll by remember { mutableStateOf(false) }
     val conversationUpdated by rememberUpdatedState(conversation)
     val density = LocalDensity.current
     val activity = LocalContext.current as? me.rerere.rikkahub.RouteActivity
@@ -294,18 +320,6 @@ private fun ChatListNormal(
             }
         }
 
-        // 判断最近是否滚动
-        LaunchedEffect(state.isScrollInProgress) {
-            if (state.isScrollInProgress) {
-                isRecentScroll = true
-                delay(1500)
-                isRecentScroll = false
-            } else {
-                delay(1500)
-                isRecentScroll = false
-            }
-        }
-
         ChatFontProvider(displaySetting = settings.displaySetting) {
             LazyColumn(
                 state = state,
@@ -368,6 +382,7 @@ private fun ChatListNormal(
                             onClearTranslation = onClearTranslation,
                             onToolApproval = onToolApproval,
                             onToolAnswer = onToolAnswer,
+                            onQuote = onQuote,
                             lastMessage = index == lastMessageIndex,
                         )
                     }
@@ -513,12 +528,16 @@ private fun ChatListNormal(
 
             val captureProgress = LocalScrollCaptureInProgress.current
 
-            // 消息快速跳转
-            MessageJumper(
-                show = isRecentScroll && !state.isScrollInProgress && settings.displaySetting.showMessageJumper && !captureProgress,
+            // 消息导航 + 阅读书签（常驻按钮，点击展开，无动画）
+            MessageNavigator(
+                show = settings.displaySetting.showMessageJumper && !captureProgress,
                 onLeft = settings.displaySetting.messageJumperOnLeft,
                 scope = scope,
-                state = state
+                state = state,
+                conversation = conversation,
+                bookmarks = bookmarks,
+                onAddBookmark = onAddBookmark,
+                onDeleteBookmark = onDeleteBookmark,
             )
 
             // Suggestion
@@ -526,6 +545,7 @@ private fun ChatListNormal(
                 ChatSuggestionsRow(
                     conversation = conversation,
                     onClickSuggestion = onClickSuggestion,
+                    opacity = settings.displaySetting.inputOpacity,
                     modifier = Modifier.align(Alignment.BottomCenter)
                 )
             }
@@ -563,7 +583,6 @@ private fun extractMatchingSnippet(
 private fun buildHighlightedText(
     text: String,
     query: String,
-    highlightColor: Color
 ): AnnotatedString {
     if (query.isBlank()) {
         return AnnotatedString(text)
@@ -577,11 +596,10 @@ private fun buildHighlightedText(
             // 添加高亮前的文本
             append(text.substring(startIndex, index))
 
-            // 添加高亮文本
+            // 墨水屏优化：用加粗代替背景色高亮，既醒目又不会遮挡文字
             withStyle(
                 style = SpanStyle(
-                    background = highlightColor,
-                    color = Color.Black
+                    fontWeight = FontWeight.Bold
                 )
             ) {
                 append(text.substring(index, index + query.length))
@@ -691,7 +709,6 @@ private fun ChatListPreview(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val highlightColor = MaterialTheme.colorScheme.tertiaryContainer
                             val highlightedText = remember(searchQuery, message) {
                                 val fullText = message.toText().trim().ifBlank { "[...]" }
                                 val messageText = extractMatchingSnippet(
@@ -701,7 +718,6 @@ private fun ChatListPreview(
                                 buildHighlightedText(
                                     text = messageText,
                                     query = searchQuery,
-                                    highlightColor = highlightColor
                                 )
                             }
                             Text(
@@ -722,7 +738,8 @@ private fun ChatListPreview(
 private fun ChatSuggestionsRow(
     modifier: Modifier = Modifier,
     conversation: Conversation,
-    onClickSuggestion: (String) -> Unit
+    onClickSuggestion: (String) -> Unit,
+    opacity: Float = 1f,
 ) {
     LazyRow(
         modifier = modifier
@@ -738,7 +755,7 @@ private fun ChatSuggestionsRow(
                     .clickable {
                         onClickSuggestion(suggestion)
                     }
-                    .background(MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp))
+                    .background(MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp).copy(alpha = opacity))
                     .padding(vertical = 4.dp, horizontal = 8.dp),
             ) {
                 Text(
@@ -751,104 +768,236 @@ private fun ChatSuggestionsRow(
 }
 
 @Composable
-private fun BoxScope.MessageJumper(
+private fun BoxScope.MessageNavigator(
     show: Boolean,
     onLeft: Boolean,
     scope: CoroutineScope,
-    state: LazyListState
+    state: LazyListState,
+    conversation: Conversation,
+    bookmarks: List<MessageBookmark>,
+    onAddBookmark: (nodeId: Uuid, scrollOffset: Int) -> Unit,
+    onDeleteBookmark: (Uuid) -> Unit,
 ) {
-    AnimatedVisibility(
-        visible = show,
-        modifier = Modifier.align(if (onLeft) Alignment.CenterStart else Alignment.CenterEnd),
-        enter = slideInHorizontally(
-            initialOffsetX = { if (onLeft) -it * 2 else it * 2 },
-        ),
-        exit = slideOutHorizontally(
-            targetOffsetX = { if (onLeft) -it * 2 else it * 2 },
-        )
+    if (!show) return
+    val toaster = LocalToaster.current
+    val haptic = LocalHapticFeedback.current
+    // 切换会话时自动折叠
+    var expanded by rememberSaveable(conversation.id) { mutableStateOf(false) }
+
+    val messageNodes = conversation.messageNodes
+    val totalNodes = messageNodes.size
+
+    // nodeId -> index 映射，供书签跳转与有效性判断（O(1)）
+    val nodeIndexById = remember(messageNodes) {
+        buildMap { messageNodes.forEachIndexed { i, n -> put(n.id, i) } }
+    }
+    // 只展示锚点仍存在的书签：节点被删除/重新生成后，旧书签自动隐藏
+    val validBookmarks = remember(bookmarks, nodeIndexById) {
+        bookmarks.filter { it.nodeId in nodeIndexById }
+    }
+
+    Column(
+        modifier = Modifier
+            .align(if (onLeft) Alignment.CenterStart else Alignment.CenterEnd)
+            .padding(8.dp),
+        horizontalAlignment = if (onLeft) Alignment.Start else Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        // 展开的导航 + 书签面板（无动画，按需直接显示/隐藏）
+        if (expanded) {
+            // 进度：当前顶部可见节点 / 总节点。仅在展开时读取滚动状态，
+            // 折叠时不读取 -> 滚动不会触发本组件重组，避免墨水屏频繁刷新
+            val currentNodeIndex = state.firstVisibleItemIndex
+                .coerceIn(0, (totalNodes - 1).fastCoerceAtLeast(0))
             Surface(
-                onClick = {
-                    scope.launch {
-                        state.scrollToItem(0)
-                    }
-                },
-                shape = CircleShape,
-                tonalElevation = 4.dp,
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(
-                    4.dp
-                ).copy(alpha = 0.65f)
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+                tonalElevation = 6.dp,
+                shadowElevation = 3.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
             ) {
-                Icon(
-                    imageVector = HugeIcons.ArrowUpDouble,
-                    contentDescription = null,
+                Column(
                     modifier = Modifier
-                        .padding(4.dp)
-                )
-            }
-            Surface(
-                onClick = {
-                    scope.launch {
-                        state.animateScrollToItem(
-                            (state.firstVisibleItemIndex - 1).fastCoerceAtLeast(
-                                0
+                        .widthIn(min = 140.dp, max = 220.dp)
+                        .padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    // 进度指示器（上下回答切换指示器的子功能）
+                    Text(
+                        text = "${currentNodeIndex + 1} / ${totalNodes.fastCoerceAtLeast(1)}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    // 上一条 / 下一条 / 顶部 / 底部
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        NavIconButton(HugeIcons.ArrowUpDouble) {
+                            scope.launch { state.scrollToItem(0) }
+                        }
+                        NavIconButton(HugeIcons.ArrowUp01) {
+                            scope.launch {
+                                state.animateScrollToItem((state.firstVisibleItemIndex - 1).fastCoerceAtLeast(0))
+                            }
+                        }
+                        NavIconButton(HugeIcons.ArrowDown01) {
+                            scope.launch { state.animateScrollToItem(state.firstVisibleItemIndex + 1) }
+                        }
+                        NavIconButton(HugeIcons.ArrowDownDouble) {
+                            scope.launch {
+                                state.scrollToItem((state.layoutInfo.totalItemsCount - 1).fastCoerceAtLeast(0))
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.fillMaxWidth())
+
+                    // 新增书签（锚定当前顶部可见回答）
+                    Surface(
+                        onClick = {
+                            val idx = state.firstVisibleItemIndex
+                                .coerceIn(0, (totalNodes - 1).fastCoerceAtLeast(0))
+                            val nodeId = messageNodes.getOrNull(idx)?.id
+                            if (nodeId != null) {
+                                onAddBookmark(nodeId, state.firstVisibleItemScrollOffset)
+                                toaster.show("已添加书签", type = ToastType.Success)
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                imageVector = HugeIcons.BookmarkAdd01,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
                             )
+                            Text(
+                                text = "新增书签",
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+
+                    // 书签地图：短按跳转，长按删除
+                    if (validBookmarks.isNotEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 200.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            validBookmarks.forEach { bm ->
+                                val idx = nodeIndexById[bm.nodeId] ?: 0
+                                BookmarkRow(
+                                    label = bm.label.ifBlank { "第 ${idx + 1} 条" },
+                                    onClick = {
+                                        scope.launch { state.scrollToItem(idx, bm.scrollOffset) }
+                                    },
+                                    onLongClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onDeleteBookmark(bm.id)
+                                        toaster.show("已删除书签", type = ToastType.Normal)
+                                    },
+                                )
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = "暂无书签",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         )
                     }
-                },
-                shape = CircleShape,
-                tonalElevation = 4.dp,
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(
-                    4.dp
-                ).copy(alpha = 0.65f)
-            ) {
-                Icon(
-                    imageVector = HugeIcons.ArrowUp01,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .padding(4.dp)
-                )
+                }
             }
-            Surface(
-                onClick = {
-                    scope.launch {
-                        state.animateScrollToItem(state.firstVisibleItemIndex + 1)
-                    }
-                },
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(
-                    4.dp
-                ).copy(alpha = 0.65f)
-            ) {
-                Icon(
-                    imageVector = HugeIcons.ArrowDown01,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .padding(4.dp)
-                )
-            }
-            Surface(
-                onClick = {
-                    scope.launch {
-                        state.scrollToItem(state.layoutInfo.totalItemsCount - 1)
-                    }
-                },
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(
-                    4.dp
-                ).copy(alpha = 0.65f),
-            ) {
-                Icon(
-                    imageVector = HugeIcons.ArrowDownDouble,
-                    contentDescription = stringResource(R.string.chat_page_scroll_to_bottom),
-                    modifier = Modifier
-                        .padding(4.dp)
-                )
-            }
+        }
+
+        // 常驻切换按钮：折叠时仅此一个、半透明；展开时高亮、点击收起
+        Surface(
+            onClick = { expanded = !expanded },
+            shape = CircleShape,
+            color = if (expanded) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp).copy(alpha = 0.4f)
+            },
+            contentColor = if (expanded) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            shadowElevation = if (expanded) 2.dp else 0.dp,
+        ) {
+            Icon(
+                imageVector = if (expanded) HugeIcons.Cancel01 else HugeIcons.Bookmark01,
+                contentDescription = "消息导航",
+                modifier = Modifier
+                    .padding(8.dp)
+                    .size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun NavIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier
+                .padding(6.dp)
+                .size(18.dp),
+        )
+    }
+}
+
+@Composable
+private fun BookmarkRow(
+    label: String,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                imageVector = HugeIcons.Bookmark01,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

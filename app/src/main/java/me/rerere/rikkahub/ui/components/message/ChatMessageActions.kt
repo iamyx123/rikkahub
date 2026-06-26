@@ -47,6 +47,7 @@ import me.rerere.hugeicons.stroke.Edit01
 import me.rerere.hugeicons.stroke.FavouriteCircle
 import me.rerere.hugeicons.stroke.GitFork
 import me.rerere.hugeicons.stroke.MoreVertical
+import me.rerere.hugeicons.stroke.QuoteUp
 import me.rerere.hugeicons.stroke.Refresh03
 import me.rerere.hugeicons.stroke.Share04
 import me.rerere.hugeicons.stroke.StopCircle
@@ -248,6 +249,7 @@ fun ChatMessageActionsSheet(
     onShare: () -> Unit,
     onFork: () -> Unit,
     onSelectAndCopy: () -> Unit,
+    onQuote: () -> Unit = {},
     isFavorite: Boolean = false,
     onToggleFavorite: (() -> Unit)? = null,
     onWebViewPreview: () -> Unit,
@@ -288,6 +290,37 @@ fun ChatMessageActionsSheet(
                         text = stringResource(R.string.select_and_copy),
                         style = MaterialTheme.typography.titleMedium,
                     )
+                }
+            }
+
+            // 引用：长按选中 AI 回答的一部分 -> 引用到输入框
+            val hasQuotableText = message.parts.filterIsInstance<UIMessagePart.Text>()
+                .any { it.text.isNotBlank() }
+            if (hasQuotableText) {
+                Card(
+                    onClick = {
+                        onDismissRequest()
+                        onQuote()
+                    },
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = HugeIcons.QuoteUp,
+                            contentDescription = null,
+                            modifier = Modifier.padding(4.dp)
+                        )
+                        Text(
+                            text = "引用",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
                 }
             }
 

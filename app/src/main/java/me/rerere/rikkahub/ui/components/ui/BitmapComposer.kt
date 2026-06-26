@@ -2,6 +2,7 @@ package me.rerere.rikkahub.ui.components.ui
 
 import android.app.Activity
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Handler
 import android.os.Looper
 import android.view.View
@@ -15,14 +16,15 @@ import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.core.view.drawToBitmap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 
-private val MAX_HEIGHT = 10000.dp
+// 容器布局上限，仅用于初始 layoutParams；真正高度由内容自适应测量得到（见 UNSPECIFIED 测量）。
+// 取一个很大的值，避免上万字的超长回答被裁断（之前 10000.dp 会被截断）。
+private val MAX_HEIGHT = 200000.dp
 private val MAX_WIDTH = 10000.dp
 
 val LocalExportContext = staticCompositionLocalOf { false }
@@ -81,7 +83,7 @@ class BitmapComposer(private val mainScope: CoroutineScope) {
             decorView.addView(composeViewContainer) // since the container is invisible, we are OK.
 
             // Step 5: Create measure specifications for the ComposeView
-            // If height or width is not provided, use AT_MOST to let the content decide the height
+            // If width is not provided, use AT_MOST to let the content decide the width
             val widthMeasureSpecs = if (width == null) {
                 View.MeasureSpec.AT_MOST // or View.MeasureSpec.UNSPECIFIED
                 // UNSPECIFIED width may not work with horizontally scrollable content - use caution.
@@ -89,9 +91,10 @@ class BitmapComposer(private val mainScope: CoroutineScope) {
                 View.MeasureSpec.EXACTLY
             }
 
+            // 高度未指定时用 UNSPECIFIED：让内容测量出真实高度，不被 MAX_HEIGHT 截断，
+            // 这样超长（上万字）的导出图片也能完整生成而不被裁剪。
             val heightMeasureSpecs = if (height == null) {
-                View.MeasureSpec.AT_MOST // or View.MeasureSpec.UNSPECIFIED
-                // UNSPECIFIED height may not work with vertically scrollable content - use caution.
+                View.MeasureSpec.UNSPECIFIED
             } else {
                 View.MeasureSpec.EXACTLY
             }
@@ -132,13 +135,32 @@ class BitmapComposer(private val mainScope: CoroutineScope) {
                     val actualHeight = composeViewContainer.measuredHeight
                     composeViewContainer.layout(0, 0, actualWidth, actualHeight)
 
-                    val bitmap = composeView.drawToBitmap() // layout finished, draw to bitmap
-                    continuation.resume(bitmap) // notify the caller with the bitmap
-
-                    // Step 6: Clean up - remove the container
-                    decorView.removeView(composeViewContainer)
+                    try {
+                        // 超长图片用 ARGB_8888 可能 OOM，失败时退回 RGB_565（占用减半，文字依旧清晰）
+                        val bitmap = composeView.captureToBitmap()
+                        continuation.resume(bitmap)
+                    } catch (t: Throwable) {
+                        continuation.resumeWith(Result.failure(t))
+                    } finally {
+                        // Step 6: Clean up - remove the container
+                        decorView.removeView(composeViewContainer)
+                    }
                 }, 100) // delay to allow ComposeView to finish rendering
             }
+        }
+    }
+
+    /**
+     * 将 View 绘制为 Bitmap。优先 ARGB_8888；若超长导致 OOM，回退 RGB_565 再试一次。
+     */
+    private fun View.captureToBitmap(): Bitmap {
+        val w = width.coerceAtLeast(1)
+        val h = height.coerceAtLeast(1)
+        return try {
+            Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { draw(Canvas(it)) }
+        } catch (e: OutOfMemoryError) {
+            System.gc()
+            Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565).also { draw(Canvas(it)) }
         }
     }
 }

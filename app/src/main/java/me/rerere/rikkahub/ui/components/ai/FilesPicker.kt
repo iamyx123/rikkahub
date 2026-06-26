@@ -72,6 +72,7 @@ import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Files02
 import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.hugeicons.stroke.Image02
+import me.rerere.hugeicons.stroke.ImageDownload
 import me.rerere.hugeicons.stroke.MusicNote03
 import me.rerere.hugeicons.stroke.Package
 import me.rerere.hugeicons.stroke.Package01
@@ -118,6 +119,9 @@ internal fun FilesPicker(
     onPickVideo: () -> Unit,
     onPickAudio: () -> Unit,
     onPickFile: () -> Unit,
+    onPickFileThirdParty: () -> Unit = {},
+    onImportLatestPhotos: () -> Unit = {},
+    onConfigurePhotoImport: () -> Unit = {},
 ) {
     val settings = LocalSettings.current
     val provider = settings.getCurrentChatModel()?.findProvider(providers = settings.providers)
@@ -139,13 +143,17 @@ internal fun FilesPicker(
 
             ImagePickButton(onClick = onPickImage)
 
+            // 导入相册最新一组照片：短按导入，长按调节"同组"分钟阈值
+            PhotoImportButton(onClick = onImportLatestPhotos, onLongClick = onConfigurePhotoImport)
+
             if (provider != null && provider is ProviderSetting.Google) {
                 VideoPickButton(onClick = onPickVideo)
 
                 AudioPickButton(onClick = onPickAudio)
             }
 
-            FilePickButton(onClick = onPickFile)
+            // 短按：系统文件选择器(SAF)；长按：第三方文件管理器(ACTION_GET_CONTENT，可多选)
+            FilePickButton(onClick = onPickFile, onLongClick = onPickFileThirdParty)
         }
 
         HorizontalDivider(
@@ -466,6 +474,21 @@ private fun ImagePickButton(onClick: () -> Unit = {}) {
 }
 
 @Composable
+private fun PhotoImportButton(onClick: () -> Unit = {}, onLongClick: (() -> Unit)? = null) {
+    BigIconTextButton(
+        icon = {
+            Icon(HugeIcons.ImageDownload, null)
+        },
+        text = {
+            // 短按导入相册最新一组照片，长按调节分钟阈值
+            Text("导入照片")
+        },
+        onLongClick = onLongClick,
+        onClick = onClick,
+    )
+}
+
+@Composable
 fun TakePicButton(onLaunchCamera: () -> Unit = {}, onLongClick: (() -> Unit)? = null) {
     BigIconTextButton(
         icon = {
@@ -503,14 +526,17 @@ fun AudioPickButton(onClick: () -> Unit = {}) {
 }
 
 @Composable
-fun FilePickButton(onClick: () -> Unit = {}) {
-    BigIconTextButton(icon = {
-        Icon(HugeIcons.Files02, null)
-    }, text = {
-        Text(stringResource(R.string.upload_file))
-    }) {
-        onClick()
-    }
+fun FilePickButton(onClick: () -> Unit = {}, onLongClick: (() -> Unit)? = null) {
+    BigIconTextButton(
+        icon = {
+            Icon(HugeIcons.Files02, null)
+        },
+        text = {
+            Text(stringResource(R.string.upload_file))
+        },
+        onLongClick = onLongClick,
+        onClick = onClick,
+    )
 }
 
 @Composable

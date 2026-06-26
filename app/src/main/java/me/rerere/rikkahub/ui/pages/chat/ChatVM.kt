@@ -31,6 +31,7 @@ import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.MessageBookmark
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.data.model.NodeFavoriteTarget
 import me.rerere.rikkahub.data.repository.ConversationRepository
@@ -105,6 +106,12 @@ class ChatVM(
     val enableWebSearch = settings.map {
         it.enableWebSearch
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    // 当前会话的阅读书签（按会话 id 持久化，锚定到 MessageNode.id）
+    val bookmarks: StateFlow<List<MessageBookmark>> =
+        settingsStore.conversationBookmarksFlow
+            .map { it[_conversationId.toString()] ?: emptyList() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // 当前模型
     val currentChatModel = settings.map { settings ->
@@ -313,6 +320,47 @@ class ChatVM(
     fun updateConversation(newConversation: Conversation) {
         chatService.updateConversationState(_conversationId) {
             newConversation
+        }
+    }
+
+    /**
+     * 新增阅读书签，锚定到 [nodeId]。
+     * 同时清理掉指向「已不存在节点」的失效书签（节点被删除/重生成会导致 id 消失）。
+     * label 为空时自动取该回答的开头文字作为标题，便于在书签地图里辨认。
+     */
+    fun addBookmark(nodeId: Uuid, scrollOffset: Int, label: String = "") {
+        viewModelScope.launch {
+            val nodes = conversation.value.messageNodes
+            val validIds = nodes.map { it.id }.toSet()
+            if (nodeId !in validIds) return@launch
+            val autoLabel = label.ifBlank {
+                nodes.firstOrNull { it.id == nodeId }
+                    ?.runCatching { currentMessage.toText() }?.getOrNull()
+                    ?.trim()?.replace('\n', ' ')?.take(30)?.ifBlank { null }
+                    ?: ""
+            }
+            val key = _conversationId.toString()
+            val bookmark = MessageBookmark(
+                nodeId = nodeId,
+                scrollOffset = scrollOffset.coerceAtLeast(0),
+                label = autoLabel,
+            )
+            settingsStore.updateConversationBookmarks { map ->
+                val existing = (map[key] ?: emptyList()).filter { it.nodeId in validIds }
+                // 同一节点已存在书签则覆盖其滚动位置，避免重复堆积
+                val deduped = existing.filterNot { it.nodeId == nodeId }
+                map + (key to (deduped + bookmark).sortedBy { node -> nodes.indexOfFirst { it.id == node.nodeId } })
+            }
+        }
+    }
+
+    fun removeBookmark(bookmarkId: Uuid) {
+        viewModelScope.launch {
+            val key = _conversationId.toString()
+            settingsStore.updateConversationBookmarks { map ->
+                val existing = (map[key] ?: emptyList()).filterNot { it.id == bookmarkId }
+                map + (key to existing)
+            }
         }
     }
 

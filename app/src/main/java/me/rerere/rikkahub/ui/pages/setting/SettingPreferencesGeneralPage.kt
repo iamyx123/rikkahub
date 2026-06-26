@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.ui.pages.setting
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.LargeFlexibleTopAppBar
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -172,6 +174,37 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                             )
                         },
                     )
+                    // 未启用毛玻璃时，提供输入框（及回答建议）的普通透明度调节
+                    if (!displaySetting.enableBlurEffect) {
+                        item(
+                            headlineContent = { Text("输入框透明度") },
+                            supportingContent = {
+                                Column {
+                                    Text(
+                                        text = "调节输入框与回答建议的不透明度（仅在关闭毛玻璃时生效）",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Slider(
+                                            value = displaySetting.inputOpacity,
+                                            onValueChange = {
+                                                updateDisplaySetting(displaySetting.copy(inputOpacity = it))
+                                            },
+                                            valueRange = 0.1f..1.0f,
+                                            steps = 8,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(text = "${(displaySetting.inputOpacity * 100).toInt()}%")
+                                    }
+                                }
+                            },
+                        )
+                    }
                     item(
                         headlineContent = { Text(stringResource(R.string.setting_display_page_immersive_mode_title)) },
                         supportingContent = { Text(stringResource(R.string.setting_display_page_immersive_mode_desc)) },

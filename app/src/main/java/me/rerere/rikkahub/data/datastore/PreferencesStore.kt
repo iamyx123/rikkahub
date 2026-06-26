@@ -81,6 +81,9 @@ class SettingsStore(
         val DISPLAY_SETTING = stringPreferencesKey("display_setting")
         val DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
 
+        // 阅读书签：按会话 id 分组持久化（不放进 Settings 大对象，避免每次加书签触发全局重组）
+        val CONVERSATION_BOOKMARKS = stringPreferencesKey("conversation_bookmarks")
+
         // 模型选择
         val ENABLE_WEB_SEARCH = booleanPreferencesKey("enable_web_search")
         val FAVORITE_MODELS = stringPreferencesKey("favorite_models")
@@ -418,6 +421,34 @@ class SettingsStore(
         update(fn(settingsFlow.value))
     }
 
+    // ============ 阅读书签 ============
+    // 单独的轻量流，避免并入 settingsFlow 导致每次加/删书签都重建整个 Settings 触发全局重组。
+    val conversationBookmarksFlow: kotlinx.coroutines.flow.Flow<Map<String, List<me.rerere.rikkahub.data.model.MessageBookmark>>> =
+        dataStore.data
+            .map { preferences ->
+                preferences[CONVERSATION_BOOKMARKS]?.let { raw ->
+                    runCatching {
+                        JsonInstant.decodeFromString<Map<String, List<me.rerere.rikkahub.data.model.MessageBookmark>>>(raw)
+                    }.getOrNull()
+                } ?: emptyMap()
+            }
+            .distinctUntilChanged()
+
+    suspend fun updateConversationBookmarks(
+        transform: (Map<String, List<me.rerere.rikkahub.data.model.MessageBookmark>>) -> Map<String, List<me.rerere.rikkahub.data.model.MessageBookmark>>
+    ) {
+        dataStore.edit { preferences ->
+            val current = preferences[CONVERSATION_BOOKMARKS]?.let { raw ->
+                runCatching {
+                    JsonInstant.decodeFromString<Map<String, List<me.rerere.rikkahub.data.model.MessageBookmark>>>(raw)
+                }.getOrNull()
+            } ?: emptyMap()
+            // 丢弃空列表，防止 map 无限增长
+            val next = transform(current).filterValues { it.isNotEmpty() }
+            preferences[CONVERSATION_BOOKMARKS] = JsonInstant.encodeToString(next)
+        }
+    }
+
     suspend fun updateAssistant(assistantId: Uuid) {
         dataStore.edit { preferences ->
             preferences[SELECT_ASSISTANT] = assistantId.toString()
@@ -605,6 +636,12 @@ data class DisplaySetting(
     val screenshotServer: ScreenshotServerConfig = ScreenshotServerConfig(),
     // 墨水屏优化：禁用界面动画与文本光标闪烁，减少屏幕刷新、降低耗电
     val disableCursorBlink: Boolean = false,
+    // 输入框（及回答建议）普通透明度，仅在未启用毛玻璃时生效，1.0=不透明
+    val inputOpacity: Float = 1.0f,
+    // 导入相册「最新一组照片」的时间阈值（分钟）：最新一张到与其间隔不超过该值的照片为同一组
+    val photoImportGroupMinutes: Int = 2,
+    // 导出 Markdown 时不包含图片（普通 Markdown 解析器不支持内嵌 base64 图片）
+    val exportMarkdownExcludeImages: Boolean = false,
 )
 
 // 电脑端 Screenshotter 服务端配置（仅本地局域网使用，IP+端口持久化）

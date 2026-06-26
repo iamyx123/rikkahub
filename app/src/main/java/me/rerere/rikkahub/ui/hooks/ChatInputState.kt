@@ -16,6 +16,16 @@ class ChatInputState {
     private var editingParts: List<UIMessagePart>? = null
     private var editingAttachmentUrls: Set<String> = emptySet()
 
+    // 自增的焦点请求信号：每次自增都会让输入框重新获取焦点并尝试弹出键盘。
+    // 用于远程截图等「关闭弹窗后立即继续输入」的场景，避免用户还要再点一次输入框。
+    var focusRequestTick by mutableStateOf(0)
+        private set
+
+    /** 请求聊天输入框获取焦点（必要时弹出软键盘）。 */
+    fun requestInputFocus() {
+        focusRequestTick++
+    }
+
     fun clearInput() {
         textContent.setTextAndPlaceCursorAtEnd("")
         messageContent = emptyList()
@@ -32,6 +42,21 @@ class ChatInputState {
 
     fun appendText(content: String) {
         textContent.setTextAndPlaceCursorAtEnd(textContent.text.toString() + content)
+    }
+
+    /**
+     * 把一段文本作为 Markdown 引用块插入输入框，并在其后留空行，方便用户紧接着提问。
+     * 用于「长按选中 AI 回答的一部分 -> 引用」。
+     */
+    fun appendQuote(content: String) {
+        val quoted = content
+            .trim()
+            .lines()
+            .joinToString("\n") { "> $it" }
+        if (quoted.isBlank()) return
+        val existing = textContent.text.toString()
+        val prefix = if (existing.isBlank()) "" else if (existing.endsWith("\n")) "" else "\n"
+        textContent.setTextAndPlaceCursorAtEnd("$existing$prefix$quoted\n\n")
     }
 
     fun setContents(contents: List<UIMessagePart>) {

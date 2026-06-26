@@ -117,6 +117,7 @@ fun ChatMessage(
     onClearTranslation: (UIMessage) -> Unit = {},
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
+    onQuote: (String) -> Unit = {},
 ) {
     val message = node.messages[node.selectIndex]
     val settings = LocalSettings.current.displaySetting
@@ -128,6 +129,7 @@ fun ChatMessage(
     )
     var showActionsSheet by remember { mutableStateOf(false) }
     var showSelectCopySheet by remember { mutableStateOf(false) }
+    var showQuoteSheet by remember { mutableStateOf(false) }
     val navController = LocalNavController.current
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
@@ -228,6 +230,9 @@ fun ChatMessage(
             onSelectAndCopy = {
                 showSelectCopySheet = true
             },
+            onQuote = {
+                showQuoteSheet = true
+            },
             isFavorite = isFavorite,
             onToggleFavorite = onToggleFavorite,
             onWebViewPreview = {
@@ -255,6 +260,19 @@ fun ChatMessage(
             message = message,
             onDismissRequest = {
                 showSelectCopySheet = false
+            }
+        )
+    }
+
+    if (showQuoteSheet) {
+        ChatMessageQuoteSheet(
+            message = message,
+            onQuote = { selected ->
+                onQuote(selected)
+                showQuoteSheet = false
+            },
+            onDismissRequest = {
+                showQuoteSheet = false
             }
         )
     }

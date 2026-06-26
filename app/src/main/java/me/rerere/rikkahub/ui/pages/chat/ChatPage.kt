@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
@@ -41,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -62,6 +64,8 @@ import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.ai.provider.Model
@@ -91,6 +95,7 @@ import me.rerere.rikkahub.ui.components.ai.completion.WorkspaceCompletionProvide
 import me.rerere.rikkahub.ui.components.ai.useCropLauncher
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionCamera
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionReadMediaImages
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -101,6 +106,7 @@ import me.rerere.rikkahub.ui.hooks.useEditState
 import me.rerere.rikkahub.utils.base64Decode
 import me.rerere.rikkahub.utils.isAllowedFileType
 import me.rerere.rikkahub.utils.navigateToChatPage
+import me.rerere.rikkahub.utils.queryLatestPhotoGroup
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
@@ -186,18 +192,28 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     }
 
     val chatListState = rememberLazyListState()
-    LaunchedEffect(nodeId, conversation.messageNodes.size) {
-        if (!vm.chatListInitialized && conversation.messageNodes.isNotEmpty()) {
-            if (nodeId != null) {
-                val index = conversation.messageNodes.indexOfFirst { it.id == nodeId }
-                if (index >= 0) {
-                    chatListState.scrollToItem(index)
-                }
-            } else {
-                chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
-            }
+    // 无 nodeId：首次进入定位到底部（最新消息）
+    LaunchedEffect(conversation.messageNodes.size) {
+        if (!vm.chatListInitialized && conversation.messageNodes.isNotEmpty() && nodeId == null) {
+            chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
             vm.chatListInitialized = true
         }
+    }
+    // 有 nodeId（全局搜索/收藏跳转）：精确定位到该消息节点。
+    // 每个不同 nodeId 只跳一次，并等待列表完成布局后再滚动，避免「只跳到开头」的竞态。
+    var jumpedToNode by remember(nodeId) { mutableStateOf(false) }
+    LaunchedEffect(nodeId, conversation.messageNodes) {
+        val target = nodeId ?: return@LaunchedEffect
+        if (jumpedToNode || conversation.messageNodes.isEmpty()) return@LaunchedEffect
+        val index = conversation.messageNodes.indexOfFirst { it.id == target }
+        if (index < 0) return@LaunchedEffect
+        vm.chatListInitialized = true // 抑制默认底部定位抢位
+        // 等待 LazyColumn 真正挂载并布局出目标项后再滚动
+        snapshotFlow { chatListState.layoutInfo.totalItemsCount }
+            .filter { it > index }
+            .first()
+        chatListState.scrollToItem(index)
+        jumpedToNode = true
     }
 
     when {
@@ -294,6 +310,7 @@ private fun ChatPageContent(
     val hazeState = rememberHazeState()
     val assistant = setting.getCurrentAssistant()
     var showFilesSheet by remember { mutableStateOf(false) }
+    val bookmarks by vm.bookmarks.collectAsStateWithLifecycle()
 
     val completionProviders = remember(assistant.workspaceId, conversation.workspaceCwd, workspaceRepository) {
         assistant.workspaceId?.let { workspaceId ->
@@ -487,6 +504,18 @@ private fun ChatPageContent(
                     vm.updateConversation(conversation.copy(customSystemPrompt = newPrompt))
                     vm.saveConversationAsync()
                 },
+                bookmarks = bookmarks,
+                onAddBookmark = { nodeId, scrollOffset ->
+                    vm.addBookmark(nodeId, scrollOffset)
+                },
+                onDeleteBookmark = { bookmarkId ->
+                    vm.removeBookmark(bookmarkId)
+                },
+                onQuote = { text ->
+                    inputState.editingMessage = null
+                    inputState.appendQuote(text)
+                    inputState.requestInputFocus()
+                },
             )
         }
 
@@ -558,6 +587,11 @@ private fun ChatFilesPickerSheet(
 
     val cameraPermission = rememberPermissionState(PermissionCamera)
     PermissionManager(permissionState = cameraPermission)
+
+    // 读取相册（导入最新一组照片）
+    val mediaPermission = rememberPermissionState(PermissionReadMediaImages)
+    PermissionManager(permissionState = mediaPermission)
+    var showPhotoImportConfig by remember { mutableStateOf(false) }
 
     var cameraOutputUri by remember { mutableStateOf<Uri?>(null) }
     var cameraOutputFile by remember { mutableStateOf<File?>(null) }
@@ -633,14 +667,19 @@ private fun ChatFilesPickerSheet(
                 shots.size to uris
             }
             result
-                .onSuccess { (count, uris) ->
+                .onSuccess { (_, uris) ->
                     if (uris.isEmpty()) {
                         toaster.show("未截取到任何屏幕", type = ToastType.Error)
                         return@onSuccess
                     }
                     inputState.addImages(uris)
-                    toaster.show("已添加 $count 张屏幕截图", type = ToastType.Success)
+                    // 清除「正在截取…」等仍在显示的 Toast，移除其全屏浮层。
+                    // 该浮层在显示期间会拦截输入框与按钮的所有点击，导致用户必须等提示消失（约 3~4 秒）才能继续输入。
+                    // 截图缩略图本身即为成功反馈，因此成功时不再额外弹出会遮挡输入的提示。
+                    toaster.dismissAll()
                     dismissAll()
+                    // 关闭底部弹窗后立即让输入框获取焦点并尝试弹出键盘，免去用户再点一次输入框。
+                    inputState.requestInputFocus()
                 }
                 .onFailure {
                     toaster.show("截图失败: ${it.message ?: "未知错误"}", type = ToastType.Error)
@@ -703,36 +742,74 @@ private fun ChatFilesPickerSheet(
             }
         }
 
-    val filePickerLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-            if (uris.isNotEmpty()) {
-                val documents = uris.mapNotNull { uri ->
-                    val fileName = filesManager.getFileNameFromUri(uri) ?: "file"
-                    val mime = filesManager.getFileMimeType(uri) ?: "text/plain"
-                    if (isAllowedFileType(fileName, mime)) {
-                        val localUri = filesManager.createChatFilesByContents(listOf(uri)).firstOrNull()
-                            ?: run {
-                                toaster.show(
-                                    context.getString(R.string.chat_input_file_read_failed, fileName),
-                                    type = ToastType.Error
-                                )
-                                return@mapNotNull null
-                            }
-                        UIMessagePart.Document(url = localUri.toString(), fileName = fileName, mime = mime)
-                    } else {
+    // 把选中的文件 uri 转换为 Document 并加入输入框（SAF 与第三方选择器共用）
+    fun addDocumentsFromUris(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val documents = uris.mapNotNull { uri ->
+            val fileName = filesManager.getFileNameFromUri(uri) ?: "file"
+            val mime = filesManager.getFileMimeType(uri) ?: "text/plain"
+            if (isAllowedFileType(fileName, mime)) {
+                val localUri = filesManager.createChatFilesByContents(listOf(uri)).firstOrNull()
+                    ?: run {
                         toaster.show(
-                            context.getString(R.string.chat_input_unsupported_file_type, fileName),
+                            context.getString(R.string.chat_input_file_read_failed, fileName),
                             type = ToastType.Error
                         )
-                        null
+                        return@mapNotNull null
                     }
-                }
-                if (documents.isNotEmpty()) {
-                    inputState.addFiles(documents)
-                    dismissAll()
-                }
+                UIMessagePart.Document(url = localUri.toString(), fileName = fileName, mime = mime)
+            } else {
+                toaster.show(
+                    context.getString(R.string.chat_input_unsupported_file_type, fileName),
+                    type = ToastType.Error
+                )
+                null
             }
         }
+        if (documents.isNotEmpty()) {
+            inputState.addFiles(documents)
+            dismissAll()
+        }
+    }
+
+    // 系统文件选择器(SAF / ACTION_OPEN_DOCUMENT)，仅显示 DocumentsProvider
+    val filePickerLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+            addDocumentsFromUris(uris)
+        }
+
+    // 第三方文件选择器(ACTION_GET_CONTENT)，可调起 MT管理器/MiXplorer 等第三方文件管理器并多选
+    val thirdPartyFilePickerLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+            addDocumentsFromUris(uris)
+        }
+
+    // 导入相册「最新一组照片」：需要读取相册权限
+    val onImportLatestPhotos: () -> Unit = {
+        if (mediaPermission.allPermissionsGranted) {
+            scope.launch {
+                val minutes = setting.displaySetting.photoImportGroupMinutes
+                val uris = withContext(Dispatchers.IO) { queryLatestPhotoGroup(context, minutes) }
+                if (uris.isEmpty()) {
+                    toaster.show("相册里没有找到照片", type = ToastType.Warning)
+                } else {
+                    val localUris = withContext(Dispatchers.IO) {
+                        filesManager.createChatFilesByContents(uris)
+                    }
+                    if (localUris.isEmpty()) {
+                        toaster.show("照片读取失败", type = ToastType.Error)
+                    } else {
+                        inputState.addImages(localUris)
+                        toaster.show("已导入最新 ${localUris.size} 张照片", type = ToastType.Success)
+                        dismissAll()
+                        inputState.requestInputFocus()
+                    }
+                }
+            }
+        } else {
+            mediaPermission.requestPermissions()
+        }
+    }
 
     val filesSheetState = rememberBottomSheetState(
         initialValue = SheetValue.Hidden,
@@ -781,6 +858,9 @@ private fun ChatFilesPickerSheet(
             onPickVideo = { videoPickerLauncher.launch("video/*") },
             onPickAudio = { audioPickerLauncher.launch("audio/*") },
             onPickFile = { filePickerLauncher.launch(arrayOf("*/*")) },
+            onPickFileThirdParty = { thirdPartyFilePickerLauncher.launch("*/*") },
+            onImportLatestPhotos = onImportLatestPhotos,
+            onConfigurePhotoImport = { showPhotoImportConfig = true },
         )
     }
 
@@ -801,6 +881,51 @@ private fun ChatFilesPickerSheet(
                 )
                 toaster.show("已保存电脑截图服务配置", type = ToastType.Success)
                 showScreenshotConfig = false
+            },
+        )
+    }
+
+    // 「导入照片」同组时间阈值配置（长按导入照片按钮触发）
+    if (showPhotoImportConfig) {
+        var minutes by remember { mutableStateOf(setting.displaySetting.photoImportGroupMinutes.coerceIn(1, 60)) }
+        AlertDialog(
+            onDismissRequest = { showPhotoImportConfig = false },
+            title = { Text("最新一组照片") },
+            text = {
+                Column {
+                    Text(
+                        text = "以相册最新一张照片为基准，向前 $minutes 分钟内的照片都算作同一组一并导入。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    androidx.compose.foundation.layout.Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        androidx.compose.material3.Slider(
+                            value = minutes.toFloat(),
+                            onValueChange = { minutes = it.toInt().coerceIn(1, 60) },
+                            valueRange = 1f..60f,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(text = "$minutes 分钟", modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.updateSettings(
+                        setting.copy(
+                            displaySetting = setting.displaySetting.copy(photoImportGroupMinutes = minutes)
+                        )
+                    )
+                    showPhotoImportConfig = false
+                }) { Text(stringResource(R.string.chat_page_save)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPhotoImportConfig = false }) {
+                    Text(stringResource(R.string.chat_page_cancel))
+                }
             },
         )
     }

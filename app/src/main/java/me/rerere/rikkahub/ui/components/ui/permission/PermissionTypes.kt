@@ -82,3 +82,15 @@ val PermissionLocalNetwork = PermissionInfo(
     usage = { Text(stringResource(R.string.permission_local_network_desc)) },
     required = true
 )
+
+// 读取相册图片：Android 13+ 用 READ_MEDIA_IMAGES，更低版本回退 READ_EXTERNAL_STORAGE
+val PermissionReadMediaImages = PermissionInfo(
+    permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Manifest.permission.READ_MEDIA_IMAGES
+    } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    },
+    displayName = { Text("相册照片") },
+    usage = { Text("用于读取相册中最新的一组照片并添加到对话") },
+    required = false
+)

@@ -31,7 +31,7 @@ fun EmojiBurstHost(
     modifier: Modifier = Modifier,
     emojiOptions: List<String>,
     burstCount: Int = 12,
-    content: @Composable (onBurst: (Offset) -> Unit) -> Unit
+    content: @Composable (onBurst: (Offset, List<String>?) -> Unit) -> Unit
 ) {
     val particles = remember { mutableStateListOf<EmojiParticle>() }
     var nextId by remember { mutableStateOf(0L) }
@@ -47,8 +47,10 @@ fun EmojiBurstHost(
                 height = constraints.maxHeight.toFloat()
             )
         )
-        val onBurst: (Offset) -> Unit = onBurst@{ origin ->
-            if (emojiOptions.isEmpty()) return@onBurst
+        // emojis 为 null 时使用默认 emojiOptions；传入自定义列表可让某次爆发使用专属表情（如作者头像彩蛋）
+        val onBurst: (Offset, List<String>?) -> Unit = onBurst@{ origin, emojis ->
+            val pool = emojis?.takeIf { it.isNotEmpty() } ?: emojiOptions
+            if (pool.isEmpty()) return@onBurst
             val minX = emojiRadiusPx
             val minY = emojiRadiusPx
             val maxX = (bounds.width - emojiRadiusPx).coerceAtLeast(minX)
@@ -64,7 +66,8 @@ fun EmojiBurstHost(
                     minX = minX,
                     maxX = maxX,
                     minY = minY,
-                    maxY = maxY
+                    maxY = maxY,
+                    emojis = pool,
                 )
             )
         }
@@ -102,7 +105,8 @@ fun EmojiBurstHost(
                         val request = iterator.next()
                         val spawnCount = minOf(batchSize, request.remaining)
                         repeat(spawnCount) {
-                            val emoji = emojiOptions[Random.nextInt(emojiOptions.size)]
+                            val pool = request.emojis
+                            val emoji = pool[Random.nextInt(pool.size)]
                             val jitterAngle = Math.toRadians(Random.nextDouble(0.0, 360.0)).toFloat()
                             val jitterRadius = emojiRadiusPx * 1.5f * Random.nextFloat()
                             val jitter = Offset(
@@ -258,5 +262,6 @@ private data class BurstRequest(
     val minX: Float,
     val maxX: Float,
     val minY: Float,
-    val maxY: Float
+    val maxY: Float,
+    val emojis: List<String>,
 )
