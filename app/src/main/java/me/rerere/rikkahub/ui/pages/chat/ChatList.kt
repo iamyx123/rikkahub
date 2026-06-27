@@ -1007,7 +1007,7 @@ private fun BoxScope.MessageNavigator(
             }
         }
 
-        // 常驻按钮：位置固定（收起即在原位）。轻点=展开/收起书签面板；按住上下拖=定格快速翻页；长按≥3秒=进入移动模式
+        // 常驻按钮：位置固定（收起即在原位）。单击=展开/收起书签面板；按住约 0.3 秒显示导航目标梯、上下滑动选档松手翻页；继续按住≥3 秒=进入移动模式
         Surface(
             modifier = Modifier
                 .offset { IntOffset(anchorX.roundToInt(), anchorY.roundToInt()) }
@@ -1016,15 +1016,23 @@ private fun BoxScope.MessageNavigator(
                     val slop = viewConfiguration.touchSlop
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        var mode = 0 // 0=未定 1=导航 2=移动
+                        var mode = 0 // 0=未定(单击候选) 1=导航 2=移动
+                        var dragged = false
                         val startY = down.position.y
-                        // 手指一按下就显示完整 7 档「目标梯」，让用户立刻看清拖到哪触发哪个动作
-                        // （不必等拖过 touchSlop 才出现），便于形成肌肉记忆。
-                        navDetent = 0
-                        // 长按满 3 秒（其间几乎不动）才进入「移动按钮」模式，避免误触
+                        // 单击 vs 按住分流：手指按住超过该阈值才显示导航目标梯；
+                        // 在此之前松手 = 单击，只切换书签面板（两者不再互相干扰）。
+                        val revealNav = scope.launch {
+                            delay(300)
+                            if (mode == 0) {
+                                mode = 1
+                                navDetent = 0
+                                haptic.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+                            }
+                        }
+                        // 继续按住满 3 秒且几乎未拖动，才进入「移动按钮」模式，避免误触
                         val longPress = scope.launch {
                             delay(3000)
-                            if (mode == 0) {
+                            if (mode != 2 && !dragged) {
                                 mode = 2
                                 repositioning = true
                                 navDetent = null // 进入移动模式：收起目标梯，改为显示「请拖动调整位置」
@@ -1037,12 +1045,15 @@ private fun BoxScope.MessageNavigator(
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
                                 if (change.changedToUp()) break
                                 val dy = change.position.y - startY
+                                // 阈值时间未到就先滑动的，也立即进入导航（一气呵成的按住下滑）
                                 if (mode == 0 && kotlin.math.abs(dy) > slop) {
                                     mode = 1
-                                    longPress.cancel()
+                                    revealNav.cancel()
+                                    navDetent = 0
                                     haptic.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
                                 }
                                 if (mode == 1) {
+                                    if (kotlin.math.abs(dy) > slop) dragged = true
                                     val d = (dy / stepPx).roundToInt().coerceIn(-3, 3)
                                     if (d != navDetent) {
                                         navDetent = d
@@ -1056,9 +1067,11 @@ private fun BoxScope.MessageNavigator(
                                 }
                             }
                         } finally {
+                            revealNav.cancel()
                             longPress.cancel()
                             when (mode) {
                                 1 -> {
+                                    // 从「按住显示的目标梯」松手：定位到当前档（中档=松手取消），不打开书签面板
                                     val d = navDetent ?: 0
                                     navDetent = null
                                     performDetentNav(d, scope, state)
@@ -1066,8 +1079,7 @@ private fun BoxScope.MessageNavigator(
 
                                 2 -> repositioning = false
                                 else -> {
-                                    // 快速轻点（未拖动也未长按）：收起目标梯并切换书签面板
-                                    navDetent = null
+                                    // 单击（未达按住阈值、未拖动）：仅切换书签面板
                                     expanded = !expanded
                                 }
                             }
