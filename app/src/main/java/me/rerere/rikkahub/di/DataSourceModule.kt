@@ -52,6 +52,27 @@ val dataSourceModule = module {
         me.rerere.rikkahub.data.screenshot.RemoteScreenshotClient(client = get())
     }
 
+    // 作业帮错题本客户端
+    single {
+        me.rerere.rikkahub.data.zyb.ZybClient(client = get())
+    }
+
+    // 喵喵机 N2 蓝牙打印机管理器
+    single {
+        me.rerere.rikkahub.data.paperang.PaperangPrinter(
+            context = get(),
+            appScope = get<me.rerere.rikkahub.AppScope>(),
+        )
+    }
+
+    // 喵喵机错题本高层服务
+    single {
+        me.rerere.rikkahub.data.miaomiao.MiaomiaoService(
+            zyb = get(),
+            settingsStore = get(),
+        )
+    }
+
     single {
         val context: Context = get()
         Room.databaseBuilder(context, AppDatabase::class.java, "rikka_hub")

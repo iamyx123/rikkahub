@@ -98,6 +98,8 @@ import me.rerere.rikkahub.ui.components.ui.permission.PermissionCamera
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionReadMediaImages
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
+import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.data.miaomiao.MiaomiaoService
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.context.Navigator
@@ -602,6 +604,8 @@ private fun ChatFilesPickerSheet(
     val toaster = LocalToaster.current
     val filesManager: FilesManager = koinInject()
     val screenshotClient: RemoteScreenshotClient = koinInject()
+    val miaomiaoService: MiaomiaoService = koinInject()
+    val navController = LocalNavController.current
     val scope = rememberCoroutineScope()
     var showScreenshotConfig by remember { mutableStateOf(false) }
     var showInjectionSheet by remember { mutableStateOf(false) }
@@ -874,6 +878,44 @@ private fun ChatFilesPickerSheet(
         }
     }
 
+    // 喵喵机错题：短按导入作业帮最新错题（图片/文字），长按进入设置
+    val onImportErrorbook: () -> Unit = {
+        scope.launch {
+            toaster.show("正在获取最新错题…", type = ToastType.Info)
+            val result = miaomiaoService.fetchLatest()
+            result.onSuccess { imp ->
+                val cfg = setting.displaySetting.miaomiaoErrorbook
+                val hasImages = imp.images.isNotEmpty()
+                var added = false
+                if (miaomiaoService.shouldAddImages(cfg.importMode, hasImages)) {
+                    val uris = withContext(Dispatchers.IO) { filesManager.createChatFilesByByteArrays(imp.images) }
+                    if (uris.isNotEmpty()) {
+                        inputState.addImages(uris)
+                        added = true
+                    }
+                }
+                if (miaomiaoService.shouldAddText(cfg.importMode, hasImages, imp.hasText) && imp.questionText != null) {
+                    inputState.appendText(imp.questionText)
+                    added = true
+                }
+                if (added) {
+                    toaster.dismissAll()
+                    toaster.show(message = "已导入「${imp.subjectName}」最新错题", type = ToastType.Success)
+                    dismissAll()
+                    inputState.requestInputFocus()
+                } else {
+                    toaster.show(message = "该错题没有可导入的内容", type = ToastType.Warning)
+                }
+            }.onFailure {
+                toaster.show(message = "获取错题失败: ${it.message ?: "未知错误"}", type = ToastType.Error)
+            }
+        }
+    }
+    val onConfigureMiaomiao: () -> Unit = {
+        dismissAll()
+        navController.navigate(Screen.SettingMiaomiao)
+    }
+
     val filesSheetState = rememberBottomSheetState(
         initialValue = SheetValue.Hidden,
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
@@ -925,6 +967,8 @@ private fun ChatFilesPickerSheet(
             onPickFileThirdParty = onLaunchThirdPartyFilePicker,
             onImportLatestPhotos = onImportLatestPhotos,
             onConfigurePhotoImport = { showPhotoImportConfig = true },
+            onImportErrorbook = onImportErrorbook,
+            onConfigureMiaomiao = onConfigureMiaomiao,
         )
     }
 

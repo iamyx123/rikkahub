@@ -136,6 +136,7 @@ fun ChatMessage(
     val navController = LocalNavController.current
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
+    val printMessage = rememberMessagePrinter()
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = if (message.role == MessageRole.USER) Alignment.End else Alignment.Start,
@@ -237,6 +238,7 @@ fun ChatMessage(
             onQuote = {
                 showQuoteSheet = true
             },
+            onPrint = { printMessage(message) },
             isFavorite = isFavorite,
             onToggleFavorite = onToggleFavorite,
             onWebViewPreview = {

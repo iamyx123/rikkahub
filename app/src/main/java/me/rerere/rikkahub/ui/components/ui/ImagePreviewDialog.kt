@@ -25,8 +25,13 @@ import com.jvziyaoyao.scale.zoomable.pager.rememberZoomablePagerState
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Download01
+import me.rerere.hugeicons.stroke.Printer
 import me.rerere.rikkahub.data.files.FilesManager
+import me.rerere.rikkahub.data.paperang.PaperangPrinter
+import me.rerere.rikkahub.data.paperang.printImageSource
+import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
+import okhttp3.OkHttpClient
 import org.koin.compose.koinInject
 
 @Composable
@@ -36,6 +41,9 @@ fun ImagePreviewDialog(
 ) {
     val context = LocalContext.current
     val filesManager: FilesManager = koinInject()
+    val printer: PaperangPrinter = koinInject()
+    val okHttpClient: OkHttpClient = koinInject()
+    val settings = LocalSettings.current
     val state = rememberZoomablePagerState { images.size }
     val toaster = LocalToaster.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -82,6 +90,28 @@ fun ImagePreviewDialog(
                     }
                 ) {
                     Icon(HugeIcons.Download01, null, tint = Color.White)
+                }
+
+                // 打印当前图片到喵喵机
+                IconButton(
+                    onClick = {
+                        val cfg = settings.displaySetting.paperangPrinter
+                        if (printer.status.value.state != PaperangPrinter.ConnState.CONNECTED) {
+                            toaster.show(
+                                message = "打印机未连接，请长按「喵喵机错题」连接打印机",
+                                type = ToastType.Warning
+                            )
+                            return@IconButton
+                        }
+                        lifecycleOwner.lifecycleScope.launch {
+                            toaster.show("正在打印…")
+                            printer.printImageSource(context, images[state.currentPage], okHttpClient, cfg)
+                                .onSuccess { toaster.show(message = "已发送到打印机", type = ToastType.Success) }
+                                .onFailure { toaster.show(message = "打印失败: ${it.message}", type = ToastType.Error) }
+                        }
+                    }
+                ) {
+                    Icon(HugeIcons.Printer, null, tint = Color.White)
                 }
             }
         }

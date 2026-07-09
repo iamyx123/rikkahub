@@ -47,7 +47,7 @@ import me.rerere.hugeicons.stroke.Edit01
 import me.rerere.hugeicons.stroke.FavouriteCircle
 import me.rerere.hugeicons.stroke.GitFork
 import me.rerere.hugeicons.stroke.MoreVertical
-import me.rerere.hugeicons.stroke.QuoteUp
+import me.rerere.hugeicons.stroke.Printer
 import me.rerere.hugeicons.stroke.Refresh03
 import me.rerere.hugeicons.stroke.Share04
 import me.rerere.hugeicons.stroke.StopCircle
@@ -250,6 +250,7 @@ fun ChatMessageActionsSheet(
     onFork: () -> Unit,
     onSelectAndCopy: () -> Unit,
     onQuote: () -> Unit = {},
+    onPrint: () -> Unit = {},
     isFavorite: Boolean = false,
     onToggleFavorite: (() -> Unit)? = null,
     onWebViewPreview: () -> Unit,
@@ -294,16 +295,18 @@ fun ChatMessageActionsSheet(
                 }
             }
 
-            // 引用：长按选中 AI 回答的一部分 -> 引用到输入框
-            val hasQuotableText = message.parts.filterIsInstance<UIMessagePart.Text>()
+            // WebView Preview (only show if message has text content)
+            val hasTextContent = message.parts.filterIsInstance<UIMessagePart.Text>()
                 .any { it.text.isNotBlank() }
-            if (hasQuotableText) {
+
+            // 一键打印这条回复（渲染含公式的内容为图片后黑白打印到喵喵机）
+            if (hasTextContent) {
                 Card(
                     onClick = {
                         onDismissRequest()
-                        onQuote()
+                        onPrint()
                     },
-                    shape = MaterialTheme.shapes.medium
+                    shape = MaterialTheme.shapes.medium,
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -313,21 +316,17 @@ fun ChatMessageActionsSheet(
                             .fillMaxWidth()
                     ) {
                         Icon(
-                            imageVector = HugeIcons.QuoteUp,
+                            imageVector = HugeIcons.Printer,
                             contentDescription = null,
                             modifier = Modifier.padding(4.dp)
                         )
                         Text(
-                            text = "引用",
+                            text = "打印这条回复",
                             style = MaterialTheme.typography.titleMedium,
                         )
                     }
                 }
             }
-
-            // WebView Preview (only show if message has text content)
-            val hasTextContent = message.parts.filterIsInstance<UIMessagePart.Text>()
-                .any { it.text.isNotBlank() }
 
             if (hasTextContent) {
                 Card(

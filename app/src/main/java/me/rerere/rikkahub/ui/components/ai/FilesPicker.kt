@@ -66,6 +66,7 @@ import me.rerere.rikkahub.ui.context.LocalToaster
 import org.koin.compose.koinInject
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.BookEdit
 import me.rerere.hugeicons.stroke.Camera01
 import me.rerere.hugeicons.stroke.Codesandbox
 import me.rerere.hugeicons.stroke.ComputerTerminal01
@@ -122,6 +123,8 @@ internal fun FilesPicker(
     onPickFileThirdParty: () -> Unit = {},
     onImportLatestPhotos: () -> Unit = {},
     onConfigurePhotoImport: () -> Unit = {},
+    onImportErrorbook: () -> Unit = {},
+    onConfigureMiaomiao: () -> Unit = {},
 ) {
     val settings = LocalSettings.current
     val provider = settings.getCurrentChatModel()?.findProvider(providers = settings.providers)
@@ -154,6 +157,9 @@ internal fun FilesPicker(
 
             // 短按：系统文件选择器(SAF)；长按：第三方文件管理器(ACTION_GET_CONTENT，可多选)
             FilePickButton(onClick = onPickFile, onLongClick = onPickFileThirdParty)
+
+            // 喵喵机错题：短按导入作业帮最新错题（图片/文字），长按进入设置（账号登录、打印机蓝牙配置）
+            MiaomiaoErrorbookButton(onClick = onImportErrorbook, onLongClick = onConfigureMiaomiao)
         }
 
         HorizontalDivider(
@@ -517,6 +523,21 @@ fun AudioPickButton(onClick: () -> Unit = {}) {
     }) {
         onClick()
     }
+}
+
+@Composable
+private fun MiaomiaoErrorbookButton(onClick: () -> Unit = {}, onLongClick: (() -> Unit)? = null) {
+    BigIconTextButton(
+        icon = {
+            Icon(HugeIcons.BookEdit, null)
+        },
+        text = {
+            // 短按导入最新错题，长按配置（账号登录 / 打印机蓝牙）
+            Text("喵喵机错题")
+        },
+        onLongClick = onLongClick,
+        onClick = onClick,
+    )
 }
 
 @Composable

@@ -53,6 +53,7 @@ import me.rerere.hugeicons.stroke.Clapping01
 import me.rerere.hugeicons.stroke.Database02
 import me.rerere.hugeicons.stroke.GlobalSearch
 import me.rerere.hugeicons.stroke.ImageUpload
+import me.rerere.hugeicons.stroke.Printer
 import me.rerere.hugeicons.stroke.InLove
 import me.rerere.hugeicons.stroke.LookTop
 import me.rerere.hugeicons.stroke.McpServer
@@ -277,6 +278,12 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                             }
                         },
                         headlineContent = { Text(stringResource(R.string.setting_page_chat_storage)) },
+                    )
+                    item(
+                        onClick = { navController.navigate(Screen.SettingMiaomiao) },
+                        leadingContent = { Icon(HugeIcons.Printer, null) },
+                        supportingContent = { Text("作业帮错题本导入 · 喵喵机蓝牙打印") },
+                        headlineContent = { Text("喵喵机 · 错题与打印") },
                     )
                 }
             }

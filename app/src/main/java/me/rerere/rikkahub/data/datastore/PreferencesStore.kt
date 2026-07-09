@@ -646,6 +646,43 @@ data class DisplaySetting(
     val bookmarkDragSensitivity: Float = 1.0f,
     // 书签按钮可上下移动的范围（占可用高度比例）。0.4~1.0
     val bookmarkDragRange: Float = 1.0f,
+    // 喵喵机错题本（作业帮账号）配置
+    val miaomiaoErrorbook: MiaomiaoErrorbookConfig = MiaomiaoErrorbookConfig(),
+    // 喵喵机 N2 蓝牙打印机配置
+    val paperangPrinter: PaperangPrinterConfig = PaperangPrinterConfig(),
+)
+
+// 喵喵机错题本导入内容模式
+@Serializable
+enum class MiaomiaoImportMode {
+    IMAGE_ONLY,   // 仅导入图片
+    TEXT_ONLY,    // 仅导入文字(LaTeX)
+    BOTH,         // 图片 + 文字都导入
+}
+
+// 作业帮错题本账号与导入偏好（密码仅存于本地 DataStore）
+@Serializable
+data class MiaomiaoErrorbookConfig(
+    val phone: String = "",
+    val password: String = "",
+    val lastGroupId: Int = 0,        // 上次选择的科目
+    val lastGroupName: String = "",
+    val importMode: MiaomiaoImportMode = MiaomiaoImportMode.IMAGE_ONLY,
+    // 图片优先标签：原图/题目/搜题；导入时按此优先，找不到用第一张
+    val preferImageLabel: String = "题目",
+    // 导入时附带解析文字（默认关，用户希望由 AI 解析）
+    val includeAnalysis: Boolean = false,
+)
+
+// 喵喵机 N2 蓝牙打印机配置
+@Serializable
+data class PaperangPrinterConfig(
+    val deviceAddress: String = "",
+    val deviceName: String = "",
+    val density: Int = 90,           // 打印浓度 1-255
+    val grayscale: Boolean = false,  // 照片用灰度，文字/题目用黑白
+    val autoReconnect: Boolean = true,
+    val feedAfter: Int = 30,         // 打印后走纸行数（方便撕纸）
 )
 
 // 电脑端 Screenshotter 服务端配置（仅本地局域网使用，IP+端口持久化）
