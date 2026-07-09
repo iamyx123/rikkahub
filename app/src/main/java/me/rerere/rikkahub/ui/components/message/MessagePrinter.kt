@@ -25,6 +25,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,14 +94,17 @@ fun PrintableMessageContent(
                     .background(Color.White)
                     .padding(10.dp)
             ) {
-                MarkdownBlock(
-                    content = text,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        color = Color.Black,
-                        fontSize = (PRINT_BASE_SP * fontScale).sp,
-                        lineHeight = (PRINT_BASE_SP * fontScale * 1.45f).sp,
-                    ),
-                )
+                // key(fontScale)：字号变化时强制重建子树，让内联公式(缓存于 remember 的 annotatedString)一起重新按新字号渲染
+                key(fontScale) {
+                    MarkdownBlock(
+                        content = text,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = Color.Black,
+                            fontSize = (PRINT_BASE_SP * fontScale).sp,
+                            lineHeight = (PRINT_BASE_SP * fontScale * 1.45f).sp,
+                        ),
+                    )
+                }
             }
         }
     }
@@ -188,7 +192,10 @@ fun MessagePrintPreviewDialog(
     val scope = rememberCoroutineScope()
     val text = remember(message) { message.toText().trim() }
 
-    var scale by remember { mutableFloatStateOf(settings.displaySetting.paperangPrinter.printFontScale) }
+    val initialScale = settings.displaySetting.paperangPrinter.printFontScale
+    // sliderValue 跟随手指（轻量），previewScale 仅在松手后更新（避免逐帧重渲染公式导致卡顿/ANR）
+    var sliderValue by remember { mutableFloatStateOf(initialScale) }
+    var previewScale by remember { mutableFloatStateOf(initialScale) }
     var printing by remember { mutableStateOf(false) }
     val status by printer.status.collectAsState()
 
@@ -238,19 +245,20 @@ fun MessagePrintPreviewDialog(
                         .verticalScroll(rememberScrollState()),
                     contentAlignment = Alignment.TopCenter,
                 ) {
-                    PrintableMessageContent(text = text, fontScale = scale, highlighter = highlighter, settings = settings)
+                    PrintableMessageContent(text = text, fontScale = previewScale, highlighter = highlighter, settings = settings)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("字体", style = MaterialTheme.typography.labelLarge)
                     Slider(
-                        value = scale,
-                        onValueChange = { scale = it },
+                        value = sliderValue,
+                        onValueChange = { sliderValue = it },
+                        onValueChangeFinished = { previewScale = sliderValue },
                         valueRange = 0.5f..2.0f,
                         modifier = Modifier
                             .weight(1f)
                             .padding(horizontal = 8.dp),
                     )
-                    Text("${(scale * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
+                    Text("${(sliderValue * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.align(Alignment.End)) {
                     TextButton(onClick = onDismiss) { Text("取消") }
@@ -267,13 +275,14 @@ fun MessagePrintPreviewDialog(
                                 return@TextButton
                             }
                             printing = true
+                            val chosenScale = sliderValue
                             scope.launch {
                                 // 记为默认字号
-                                settingsStore.update { it.copy(displaySetting = it.displaySetting.copy(paperangPrinter = it.displaySetting.paperangPrinter.copy(printFontScale = scale))) }
+                                settingsStore.update { it.copy(displaySetting = it.displaySetting.copy(paperangPrinter = it.displaySetting.paperangPrinter.copy(printFontScale = chosenScale))) }
                                 toaster.show("正在渲染并打印…")
                                 val cfg = settings.displaySetting.paperangPrinter
                                 runCatching {
-                                    val bitmap = renderMessageBitmap(scope, activity, density, highlighter, settings, text, scale)
+                                    val bitmap = renderMessageBitmap(scope, activity, density, highlighter, settings, text, chosenScale)
                                     val result = printer.printBitmap(bitmap, grayscale = false, density = cfg.density, feedAfter = 0)
                                     if (!bitmap.isRecycled) bitmap.recycle()
                                     result.getOrThrow()

@@ -62,6 +62,7 @@ val dataSourceModule = module {
         me.rerere.rikkahub.data.paperang.PaperangPrinter(
             context = get(),
             appScope = get<me.rerere.rikkahub.AppScope>(),
+            settingsStore = get(),
         )
     }
 

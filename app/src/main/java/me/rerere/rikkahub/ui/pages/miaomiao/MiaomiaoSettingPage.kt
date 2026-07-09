@@ -361,8 +361,17 @@ private fun PrintFontCard(
 ) {
     val highlighter: Highlighter = koinInject()
     val settings = LocalSettings.current
-    var scaleLocal by remember(fontScale) { mutableStateOf(fontScale) }
-    val sample = "示例：二次函数 \$f(x)=ax^2+bx+c\$ 的顶点为 \$\\left(-\\dfrac{b}{2a},\\ \\dfrac{4ac-b^2}{4a}\\right)\$。\n\n1. 先配方\n2. 再求最值"
+    // sliderValue 跟随手指，previewScale 仅松手后更新，避免逐帧重渲染公式卡顿
+    var sliderValue by remember(fontScale) { mutableStateOf(fontScale) }
+    var previewScale by remember(fontScale) { mutableStateOf(fontScale) }
+    val sample = "### 解题示例\n\n" +
+        "已知抛物线 \${y}^{2}=2px\\,(p>0)\$ 过点 \$A(2,\\,2)\$，求 \$p\$ 的值与准线方程。\n\n" +
+        "**解：** 将点 \$A\$ 代入得 \$4=4p\$，故 \$p=1\$，抛物线方程为\n\n" +
+        "\$\$y^{2}=2x\$\$\n\n" +
+        "于是准线为 \$x=-\\dfrac{1}{2}\$。要点：\n\n" +
+        "1. 顶点在原点，开口向右；\n" +
+        "2. 焦点坐标为 \$\\left(\\dfrac{p}{2},\\,0\\right)\$；\n" +
+        "3. 抛物线离心率恒为 \$1\$。"
 
     SectionCard(title = "AI 回复打印字体", icon = HugeIcons.TextFont) {
         Text(
@@ -373,15 +382,18 @@ private fun PrintFontCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("字体", style = MaterialTheme.typography.labelLarge)
             Slider(
-                value = scaleLocal,
-                onValueChange = { scaleLocal = it },
-                onValueChangeFinished = { onScaleChange(scaleLocal) },
+                value = sliderValue,
+                onValueChange = { sliderValue = it },
+                onValueChangeFinished = {
+                    previewScale = sliderValue
+                    onScaleChange(sliderValue)
+                },
                 valueRange = 0.5f..2.0f,
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = 8.dp),
             )
-            Text("${(scaleLocal * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
+            Text("${(sliderValue * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
         }
         Box(
             modifier = Modifier
@@ -393,7 +405,7 @@ private fun PrintFontCard(
                 .verticalScroll(rememberScrollState()),
             contentAlignment = Alignment.TopCenter,
         ) {
-            PrintableMessageContent(text = sample, fontScale = scaleLocal, highlighter = highlighter, settings = settings)
+            PrintableMessageContent(text = sample, fontScale = previewScale, highlighter = highlighter, settings = settings)
         }
     }
 }

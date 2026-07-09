@@ -93,6 +93,9 @@ class RikkaHubApp : Application() {
             fetchAndActivate()
         }
 
+        // 提前创建喵喵机打印机管理器：注册前台/蓝牙监听并尝试自动连接上次记忆的设备
+        runCatching { get<me.rerere.rikkahub.data.paperang.PaperangPrinter>() }
+
         // Start WebServer if enabled in settings
         startWebServerIfEnabled()
 

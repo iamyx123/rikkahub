@@ -34,6 +34,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import me.rerere.rikkahub.data.datastore.SettingsStore
 import org.json.JSONObject
 
 /**
@@ -49,6 +50,7 @@ import org.json.JSONObject
 class PaperangPrinter(
     private val context: Context,
     private val appScope: CoroutineScope,
+    private val settingsStore: SettingsStore,
 ) {
     companion object {
         private const val TAG = "PaperangPrinter"
@@ -106,14 +108,14 @@ class PaperangPrinter(
         autoReconnectEnabled && appInForeground && isBluetoothOn() && desiredAddress != null
 
     init {
-        // 仅在前台自动重连（后台 BLE 重连很耗电）；回到前台且满足条件时补一次重连
+        // 仅在前台自动重连（后台 BLE 重连很耗电）；回到前台时尝试自动连接上次记忆的设备
         appScope.launch {
             ProcessLifecycleOwner.get().lifecycle.addObserver(
                 LifecycleEventObserver { _, event ->
                     when (event) {
                         Lifecycle.Event.ON_START -> {
                             appInForeground = true
-                            if (canReconnect() && gatt == null) appScope.launch { reconnectLoop() }
+                            maybeAutoConnect()
                         }
                         Lifecycle.Event.ON_STOP -> appInForeground = false
                         else -> {}
@@ -121,7 +123,7 @@ class PaperangPrinter(
                 }
             )
         }
-        // 监听蓝牙开关：关闭时立即断开并停止重连，打开时（前台）恢复重连
+        // 监听蓝牙开关：关闭时立即断开并停止重连，打开时（前台）恢复连接
         runCatching {
             ContextCompat.registerReceiver(
                 context, btStateReceiver,
@@ -129,6 +131,8 @@ class PaperangPrinter(
                 ContextCompat.RECEIVER_NOT_EXPORTED,
             )
         }
+        // 应用启动即尝试连接上次记忆的设备
+        maybeAutoConnect()
     }
 
     private val btStateReceiver = object : BroadcastReceiver() {
@@ -143,9 +147,31 @@ class PaperangPrinter(
                     }
                     _status.value = _status.value.copy(state = ConnState.DISCONNECTED, message = "蓝牙已关闭")
                 }
-                BluetoothAdapter.STATE_ON -> {
-                    if (canReconnect() && gatt == null) appScope.launch { reconnectLoop() }
-                }
+                BluetoothAdapter.STATE_ON -> maybeAutoConnect()
+            }
+        }
+    }
+
+    /**
+     * 设备记忆：若配置了上次连接的设备且开启自动重连，前台 + 蓝牙开启时自动连接。
+     * 覆盖两种场景：冷启动首次连接、以及断线/回到前台后的恢复。
+     */
+    @Volatile private var autoConnectInFlight = false
+
+    private fun maybeAutoConnect() {
+        // 同步守卫：init 与 ON_START 可能相继触发，避免并发发起两次连接
+        if (autoConnectInFlight || gatt != null || !appInForeground || !isBluetoothOn()) return
+        if (_status.value.state == ConnState.CONNECTING || _status.value.state == ConnState.SCANNING) return
+        autoConnectInFlight = true
+        appScope.launch {
+            try {
+                val cfg = settingsStore.settingsFlow.value.displaySetting.paperangPrinter
+                val addr = (desiredAddress ?: cfg.deviceAddress).takeIf { it.isNotBlank() } ?: return@launch
+                if (!cfg.autoReconnect) return@launch
+                autoReconnectEnabled = cfg.autoReconnect
+                runCatching { connect(addr) }
+            } finally {
+                autoConnectInFlight = false
             }
         }
     }
