@@ -11,9 +11,16 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.util.Log
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -83,11 +90,65 @@ class PaperangPrinter(
     private var servicesDeferred: CompletableDeferred<Boolean>? = null
     private var mtuDeferred: CompletableDeferred<Boolean>? = null
 
-    private var autoReconnect = true
-    private var lastAddress: String? = null
+    @Volatile private var autoReconnectEnabled = true
+    @Volatile private var appInForeground = true
+    private var desiredAddress: String? = null
     private var scanning = false
 
     fun isBluetoothOn(): Boolean = adapter?.isEnabled == true
+
+    fun setAutoReconnect(enabled: Boolean) {
+        autoReconnectEnabled = enabled
+    }
+
+    /** 是否满足自动重连条件：开关开 + 应用在前台 + 蓝牙已开 + 有目标设备。 */
+    private fun canReconnect(): Boolean =
+        autoReconnectEnabled && appInForeground && isBluetoothOn() && desiredAddress != null
+
+    init {
+        // 仅在前台自动重连（后台 BLE 重连很耗电）；回到前台且满足条件时补一次重连
+        appScope.launch {
+            ProcessLifecycleOwner.get().lifecycle.addObserver(
+                LifecycleEventObserver { _, event ->
+                    when (event) {
+                        Lifecycle.Event.ON_START -> {
+                            appInForeground = true
+                            if (canReconnect() && gatt == null) appScope.launch { reconnectLoop() }
+                        }
+                        Lifecycle.Event.ON_STOP -> appInForeground = false
+                        else -> {}
+                    }
+                }
+            )
+        }
+        // 监听蓝牙开关：关闭时立即断开并停止重连，打开时（前台）恢复重连
+        runCatching {
+            ContextCompat.registerReceiver(
+                context, btStateReceiver,
+                IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+        }
+    }
+
+    private val btStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, intent: Intent?) {
+            if (intent?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                BluetoothAdapter.STATE_OFF, BluetoothAdapter.STATE_TURNING_OFF -> {
+                    stopScan()
+                    if (gatt != null) {
+                        runCatching { gatt?.disconnect() }
+                        cleanupGatt()
+                    }
+                    _status.value = _status.value.copy(state = ConnState.DISCONNECTED, message = "蓝牙已关闭")
+                }
+                BluetoothAdapter.STATE_ON -> {
+                    if (canReconnect() && gatt == null) appScope.launch { reconnectLoop() }
+                }
+            }
+        }
+    }
 
     // ─── 扫描 ───
 
@@ -152,10 +213,10 @@ class PaperangPrinter(
                 Log.i(TAG, "disconnected (status=$statusCode)")
                 connectDeferred?.complete(false)
                 servicesDeferred?.complete(false)
-                val wasConnected = _status.value.state == ConnState.CONNECTED
                 cleanupGatt()
                 _status.value = _status.value.copy(state = ConnState.DISCONNECTED)
-                if (autoReconnect && wasConnected && lastAddress != null) {
+                // 仅前台 + 蓝牙开启 + 有目标设备时自动重连
+                if (canReconnect()) {
                     appScope.launch { reconnectLoop() }
                 }
             }
@@ -223,9 +284,11 @@ class PaperangPrinter(
     }
 
     suspend fun connect(address: String): Boolean = withContext(Dispatchers.IO) {
+        if (!isBluetoothOn()) {
+            _status.value = _status.value.copy(state = ConnState.DISCONNECTED, message = "蓝牙未开启，请先打开蓝牙")
+            return@withContext false
+        }
         stopScan()
-        autoReconnect = true
-        lastAddress = address
         val device = runCatching { adapter?.getRemoteDevice(address) }.getOrNull() ?: return@withContext false
         _status.value = _status.value.copy(state = ConnState.CONNECTING, deviceAddress = address, message = null)
         connectDeferred = CompletableDeferred()
@@ -250,6 +313,7 @@ class PaperangPrinter(
         withTimeoutOrNull(3_000) { mtuDeferred?.await() }
         delay(200)
         val name = runCatching { device.name }.getOrNull() ?: _scanResults.value.find { it.address == address }?.name
+        desiredAddress = address // 连接成功后才记为目标设备（用于前台自动重连）
         _status.value = _status.value.copy(
             state = ConnState.CONNECTED,
             deviceName = name,
@@ -263,9 +327,9 @@ class PaperangPrinter(
     }
 
     private suspend fun reconnectLoop() {
-        val addr = lastAddress ?: return
+        val addr = desiredAddress ?: return
         var attempt = 0
-        while (autoReconnect && gatt == null && attempt < 5) {
+        while (canReconnect() && gatt == null && attempt < 5) {
             attempt++
             _status.value = _status.value.copy(state = ConnState.CONNECTING, message = "重新连接中($attempt)")
             val ok = runCatching { connect(addr) }.getOrDefault(false)
@@ -275,7 +339,7 @@ class PaperangPrinter(
     }
 
     fun disconnect() {
-        autoReconnect = false
+        desiredAddress = null // 用户主动断开，不再自动重连
         runCatching { gatt?.disconnect() }
         cleanupGatt()
         _status.value = Status()
@@ -369,7 +433,7 @@ class PaperangPrinter(
     // ─── 打印 ───
 
     /** 黑白/灰度打印一张位图；返回是否成功。density 1-255。 */
-    suspend fun printBitmap(bitmap: android.graphics.Bitmap, grayscale: Boolean, density: Int = 90, feedAfter: Int = 30): Result<Unit> =
+    suspend fun printBitmap(bitmap: android.graphics.Bitmap, grayscale: Boolean, density: Int = 90, feedAfter: Int = 0): Result<Unit> =
         withContext(Dispatchers.IO) {
             if (gatt == null || writeChar == null) return@withContext Result.failure(IllegalStateException("打印机未连接"))
             val width = _status.value.paperWidthPx.takeIf { it > 0 } ?: DEFAULT_WIDTH
@@ -450,6 +514,14 @@ class PaperangPrinter(
 
     suspend fun feed(lines: Int) {
         sendCommand(PaperangProtocol.PARENT_THERMALPRINTER, PaperangProtocol.TP_SET_MOVE_PAPER, PaperangProtocol.u16(lines))
+    }
+
+    /** 重新检测当前纸张宽度并更新状态（供打印预览刷新纸张信息）。 */
+    suspend fun refreshPaperWidth(): Int? = withContext(Dispatchers.IO) {
+        if (gatt == null || writeChar == null) return@withContext null
+        val w = detectPaperWidth()
+        if (w != null) _status.value = _status.value.copy(paperWidthPx = w)
+        w ?: _status.value.paperWidthPx
     }
 
     suspend fun selfTest() {

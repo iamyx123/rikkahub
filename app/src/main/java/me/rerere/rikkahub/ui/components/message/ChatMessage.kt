@@ -137,6 +137,7 @@ fun ChatMessage(
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
     val printMessage = rememberMessagePrinter()
+    var printPreviewMessage by remember { mutableStateOf<UIMessage?>(null) }
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = if (message.role == MessageRole.USER) Alignment.End else Alignment.Start,
@@ -239,6 +240,7 @@ fun ChatMessage(
                 showQuoteSheet = true
             },
             onPrint = { printMessage(message) },
+            onPrintPreview = { printPreviewMessage = message },
             isFavorite = isFavorite,
             onToggleFavorite = onToggleFavorite,
             onWebViewPreview = {
@@ -258,6 +260,13 @@ fun ChatMessage(
             onDismissRequest = {
                 showActionsSheet = false
             }
+        )
+    }
+
+    printPreviewMessage?.let { msg ->
+        MessagePrintPreviewDialog(
+            message = msg,
+            onDismiss = { printPreviewMessage = null },
         )
     }
 

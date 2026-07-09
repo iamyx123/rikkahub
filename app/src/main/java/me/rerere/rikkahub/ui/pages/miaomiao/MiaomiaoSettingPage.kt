@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -13,8 +14,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -22,6 +27,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,6 +41,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +50,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,13 +65,16 @@ import me.rerere.hugeicons.stroke.Bluetooth
 import me.rerere.hugeicons.stroke.BluetoothSearch
 import me.rerere.hugeicons.stroke.Link01
 import me.rerere.hugeicons.stroke.Printer
+import me.rerere.hugeicons.stroke.TextFont
 import me.rerere.hugeicons.stroke.ViewOff
 import me.rerere.hugeicons.stroke.View
+import me.rerere.highlight.Highlighter
 import me.rerere.rikkahub.data.datastore.MiaomiaoImportMode
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.miaomiao.MiaomiaoService
 import me.rerere.rikkahub.data.paperang.PaperangPrinter
 import me.rerere.rikkahub.data.zyb.ZybClient
+import me.rerere.rikkahub.ui.components.message.PrintableMessageContent
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -94,6 +105,9 @@ fun MiaomiaoSettingPage(
             settingsStore.update { it.copy(displaySetting = it.displaySetting.copy(paperangPrinter = transform(it.displaySetting.paperangPrinter))) }
         }
     }
+
+    // 让打印机的自动重连开关与配置保持一致
+    LaunchedEffect(prtCfg.autoReconnect) { printer.setAutoReconnect(prtCfg.autoReconnect) }
 
     Scaffold(
         topBar = {
@@ -138,13 +152,13 @@ fun MiaomiaoSettingPage(
                 density = prtCfg.density,
                 grayscale = prtCfg.grayscale,
                 autoReconnect = prtCfg.autoReconnect,
-                feedAfter = prtCfg.feedAfter,
                 onConnect = { addr, name ->
                     updatePrinter { it.copy(deviceAddress = addr, deviceName = name) }
+                    printer.setAutoReconnect(prtCfg.autoReconnect)
                     scope.launch {
                         val ok = printer.connect(addr)
                         toaster.show(
-                            message = if (ok) "打印机已连接" else "连接失败，请重试",
+                            message = if (ok) "打印机已连接" else (printer.status.value.message ?: "连接失败，请重试"),
                             type = if (ok) ToastType.Success else ToastType.Error,
                         )
                     }
@@ -152,8 +166,15 @@ fun MiaomiaoSettingPage(
                 onDisconnect = { printer.disconnect() },
                 onDensityChange = { d -> updatePrinter { it.copy(density = d) } },
                 onToggleGray = { v -> updatePrinter { it.copy(grayscale = v) } },
-                onToggleAutoReconnect = { v -> updatePrinter { it.copy(autoReconnect = v) } },
-                onFeedAfterChange = { f -> updatePrinter { it.copy(feedAfter = f) } },
+                onToggleAutoReconnect = { v ->
+                    updatePrinter { it.copy(autoReconnect = v) }
+                    printer.setAutoReconnect(v)
+                },
+            )
+
+            PrintFontCard(
+                fontScale = prtCfg.printFontScale,
+                onScaleChange = { s -> updatePrinter { it.copy(printFontScale = s) } },
             )
         }
     }
@@ -274,20 +295,15 @@ private fun ErrorbookAccountCard(
         Text("默认科目（不选则自动取最新拍摄的一题）", style = MaterialTheme.typography.labelLarge)
         if (lastGroupName.isNotBlank() || groups.isNotEmpty()) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                FilterChip(
-                    selected = lastGroupName.isBlank(),
-                    onClick = { onSelectGroup(0, "") },
-                    label = { Text("自动") },
-                )
+                EinkChip(label = "自动", selected = lastGroupName.isBlank()) { onSelectGroup(0, "") }
                 groups.forEach { g ->
-                    FilterChip(
+                    EinkChip(
+                        label = if (g.count > 0) "${g.name}(${g.count})" else g.name,
                         selected = lastGroupName == g.name,
-                        onClick = { onSelectGroup(g.groupId, g.name) },
-                        label = { Text(if (g.count > 0) "${g.name}(${g.count})" else g.name) },
-                    )
+                    ) { onSelectGroup(g.groupId, g.name) }
                 }
                 if (groups.isEmpty() && lastGroupName.isNotBlank()) {
-                    FilterChip(selected = true, onClick = { }, label = { Text(lastGroupName) })
+                    EinkChip(label = lastGroupName, selected = true) { }
                 }
             }
         }
@@ -318,7 +334,68 @@ private fun ErrorbookAccountCard(
 
 @Composable
 private fun ModeChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    FilterChip(selected = selected, onClick = onClick, label = { Text(label) })
+    EinkChip(label = label, selected = selected, onClick = onClick)
+}
+
+/** 墨水屏高对比 chip：选中=深色实心填充+浅色文字（无彩色屏也能清晰分辨选中态）。 */
+@Composable
+private fun EinkChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label) },
+        colors = FilterChipDefaults.filterChipColors(
+            labelColor = MaterialTheme.colorScheme.onSurface,
+            selectedContainerColor = MaterialTheme.colorScheme.onSurface,
+            selectedLabelColor = MaterialTheme.colorScheme.surface,
+            selectedLeadingIconColor = MaterialTheme.colorScheme.surface,
+        ),
+    )
+}
+
+/** AI 回复打印字体大小设置 + 实时预览（所见即打印）。 */
+@Composable
+private fun PrintFontCard(
+    fontScale: Float,
+    onScaleChange: (Float) -> Unit,
+) {
+    val highlighter: Highlighter = koinInject()
+    val settings = LocalSettings.current
+    var scaleLocal by remember(fontScale) { mutableStateOf(fontScale) }
+    val sample = "示例：二次函数 \$f(x)=ax^2+bx+c\$ 的顶点为 \$\\left(-\\dfrac{b}{2a},\\ \\dfrac{4ac-b^2}{4a}\\right)\$。\n\n1. 先配方\n2. 再求最值"
+
+    SectionCard(title = "AI 回复打印字体", icon = HugeIcons.TextFont) {
+        Text(
+            "调节后下方预览即为打印效果；聊天里短按「打印这条回复」按此字号，长按可临时再调。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("字体", style = MaterialTheme.typography.labelLarge)
+            Slider(
+                value = scaleLocal,
+                onValueChange = { scaleLocal = it },
+                onValueChangeFinished = { onScaleChange(scaleLocal) },
+                valueRange = 0.5f..2.0f,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 8.dp),
+            )
+            Text("${(scaleLocal * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 260.dp)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                .background(Color.White, RoundedCornerShape(8.dp))
+                .padding(6.dp)
+                .verticalScroll(rememberScrollState()),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            PrintableMessageContent(text = sample, fontScale = scaleLocal, highlighter = highlighter, settings = settings)
+        }
+    }
 }
 
 @Composable
@@ -327,13 +404,11 @@ private fun PrinterCard(
     density: Int,
     grayscale: Boolean,
     autoReconnect: Boolean,
-    feedAfter: Int,
     onConnect: (String, String) -> Unit,
     onDisconnect: () -> Unit,
     onDensityChange: (Int) -> Unit,
     onToggleGray: (Boolean) -> Unit,
     onToggleAutoReconnect: (Boolean) -> Unit,
-    onFeedAfterChange: (Int) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
@@ -450,7 +525,7 @@ private fun PrinterCard(
             ) { Text("打印自检页") }
             OutlinedButton(
                 enabled = status.state == PaperangPrinter.ConnState.CONNECTED,
-                onClick = { scope.launch { printer.feed(feedAfter.coerceIn(1, 200)) } },
+                onClick = { scope.launch { printer.feed(60) } },
             ) { Text("走纸") }
         }
     }

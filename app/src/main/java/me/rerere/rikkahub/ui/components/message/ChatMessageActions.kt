@@ -2,6 +2,7 @@ package me.rerere.rikkahub.ui.components.message
 
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -251,6 +252,7 @@ fun ChatMessageActionsSheet(
     onSelectAndCopy: () -> Unit,
     onQuote: () -> Unit = {},
     onPrint: () -> Unit = {},
+    onPrintPreview: () -> Unit = {},
     isFavorite: Boolean = false,
     onToggleFavorite: (() -> Unit)? = null,
     onWebViewPreview: () -> Unit,
@@ -299,31 +301,42 @@ fun ChatMessageActionsSheet(
             val hasTextContent = message.parts.filterIsInstance<UIMessagePart.Text>()
                 .any { it.text.isNotBlank() }
 
-            // 一键打印这条回复（渲染含公式的内容为图片后黑白打印到喵喵机）
+            // 打印这条回复：短按用默认字号直接打印，长按打开预览调节字体后打印
             if (hasTextContent) {
-                Card(
-                    onClick = {
-                        onDismissRequest()
-                        onPrint()
-                    },
-                    shape = MaterialTheme.shapes.medium,
-                ) {
+                Card(shape = MaterialTheme.shapes.medium) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier
-                            .padding(16.dp)
                             .fillMaxWidth()
+                            .combinedClickable(
+                                onClick = {
+                                    onDismissRequest()
+                                    onPrint()
+                                },
+                                onLongClick = {
+                                    onDismissRequest()
+                                    onPrintPreview()
+                                },
+                            )
+                            .padding(16.dp)
                     ) {
                         Icon(
                             imageVector = HugeIcons.Printer,
                             contentDescription = null,
                             modifier = Modifier.padding(4.dp)
                         )
-                        Text(
-                            text = "打印这条回复",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
+                        Column {
+                            Text(
+                                text = "打印这条回复",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                text = "短按直接打印 · 长按预览并调字体",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
