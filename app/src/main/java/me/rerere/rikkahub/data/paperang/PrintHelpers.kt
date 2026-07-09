@@ -93,7 +93,7 @@ suspend fun PaperangPrinter.printScaledBitmap(
 ): Result<Unit> {
     val paperWidth = effectivePaperWidth()
     val canvas = composeImageOnPaper(bitmap, paperWidth, scale)
-    val r = printBitmap(canvas, grayscale = cfg.grayscale, density = cfg.density, feedAfter = 0)
+    val r = printBitmap(canvas, grayscale = cfg.grayscale, density = cfg.density, feedAfter = cfg.feedAfter)
     if (!canvas.isRecycled) canvas.recycle()
     return r
 }

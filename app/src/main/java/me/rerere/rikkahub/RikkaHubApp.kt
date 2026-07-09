@@ -1,6 +1,8 @@
 package me.rerere.rikkahub
 
+import android.app.Activity
 import android.app.Application
+import android.os.Bundle
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -50,8 +52,27 @@ const val CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID = "chat_live_update"
 const val WEB_SERVER_NOTIFICATION_CHANNEL_ID = "web_server"
 
 class RikkaHubApp : Application() {
+    companion object {
+        // 当前处于前台的 Activity（供无 Compose 环境的场景做离屏渲染，如 AI 打印工具）
+        @Volatile
+        var currentActivity: Activity? = null
+    }
+
     override fun onCreate() {
         super.onCreate()
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityResumed(activity: Activity) { currentActivity = activity }
+            override fun onActivityPaused(activity: Activity) {
+                if (currentActivity === activity) currentActivity = null
+            }
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+            override fun onActivityStarted(activity: Activity) {}
+            override fun onActivityStopped(activity: Activity) {}
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+            override fun onActivityDestroyed(activity: Activity) {
+                if (currentActivity === activity) currentActivity = null
+            }
+        })
         startKoin {
             androidLogger()
             androidContext(this@RikkaHubApp)

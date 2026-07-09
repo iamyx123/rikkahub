@@ -95,6 +95,7 @@ import me.rerere.hugeicons.stroke.Download04
 import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.ui.components.table.DataTable
+import me.rerere.rikkahub.ui.components.ui.LocalExportContext
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.modifier.onClick
 import me.rerere.rikkahub.ui.theme.JetbrainsMono
@@ -508,8 +509,10 @@ private fun MarkdownNode(
         }
 
         MarkdownTokenTypes.HORIZONTAL_RULE -> {
+            // 打印/导出时分割线上下留白改小，避免占据比文字还多的空白
+            val exporting = LocalExportContext.current
             HorizontalDivider(
-                modifier = Modifier.padding(vertical = 16.dp),
+                modifier = Modifier.padding(vertical = if (exporting) 3.dp else 16.dp),
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
                 thickness = 0.5.dp
             )
@@ -520,17 +523,24 @@ private fun MarkdownNode(
             val altText = node.findChildOfTypeRecursive(MarkdownElementTypes.LINK_TEXT)?.getTextInNode(content) ?: ""
             val imageUrl =
                 node.findChildOfTypeRecursive(MarkdownElementTypes.LINK_DESTINATION)?.getTextInNode(content) ?: ""
+            val exporting = LocalExportContext.current
             Column(
                 modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 这里可以使用Coil等图片加载库加载图片
+                // 打印/导出：图片限制为适应内容宽度（避免过大），并随整幅缩放
                 ZoomableAsyncImage(
                     model = imageUrl,
                     contentDescription = altText,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .widthIn(min = 120.dp)
-                        .heightIn(min = 120.dp),
+                    modifier = if (exporting) {
+                        Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .fillMaxWidth()
+                    } else {
+                        Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .widthIn(min = 120.dp)
+                            .heightIn(min = 120.dp)
+                    },
                 )
             }
         }

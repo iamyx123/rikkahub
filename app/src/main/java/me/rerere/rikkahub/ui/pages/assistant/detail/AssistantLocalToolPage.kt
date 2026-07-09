@@ -226,6 +226,16 @@ private fun AssistantLocalToolContent(
                     )
                 }
             )
+            item(
+                headlineContent = { Text("打印(喵喵机)") },
+                supportingContent = { Text("允许 AI 把 Markdown 内容渲染成图片并用喵喵机打印（支持公式，可自定义字号）") },
+                trailingContent = {
+                    Switch(
+                        checked = assistant.localTools.contains(LocalToolOption.Print),
+                        onCheckedChange = { toggleLocalTool(LocalToolOption.Print, it) }
+                    )
+                }
+            )
         }
     }
 }

@@ -346,10 +346,9 @@ class PaperangPrinter(
             deviceAddress = address,
             message = null,
         )
-        // 纸张宽度：手动覆盖优先，否则自动检测
-        val override = settingsStore.settingsFlow.value.displaySetting.paperangPrinter.paperWidthOverride
-        val width = if (override > 0) override else detectPaperWidth()
-        if (width != null) _status.value = _status.value.copy(paperWidthPx = width)
+        // 纸张宽度只用设置里的手动值，绝不向打印机发查询命令
+        // （N2 收到纸张查询会做进纸/校准动作，配合"开机自动连接"会每次开 App 都走纸浪费）
+        _status.value = _status.value.copy(paperWidthPx = effectivePaperWidth())
         true
     }
 
@@ -549,17 +548,11 @@ class PaperangPrinter(
         sendCommand(PaperangProtocol.PARENT_THERMALPRINTER, PaperangProtocol.TP_SET_MOVE_PAPER, PaperangProtocol.u16(lines))
     }
 
-    /** 重新检测当前纸张宽度并更新状态（供打印预览刷新纸张信息）。手动覆盖优先。 */
-    suspend fun refreshPaperWidth(): Int? = withContext(Dispatchers.IO) {
-        val override = settingsStore.settingsFlow.value.displaySetting.paperangPrinter.paperWidthOverride
-        if (override > 0) {
-            _status.value = _status.value.copy(paperWidthPx = override)
-            return@withContext override
-        }
-        if (gatt == null || writeChar == null) return@withContext null
-        val w = detectPaperWidth()
-        if (w != null) _status.value = _status.value.copy(paperWidthPx = w)
-        w ?: _status.value.paperWidthPx
+    /** 刷新纸张信息（只读设置里的手动值，不向打印机发命令、不会走纸）。 */
+    fun refreshPaperWidth(): Int {
+        val w = effectivePaperWidth()
+        _status.value = _status.value.copy(paperWidthPx = w)
+        return w
     }
 
     suspend fun selfTest() {

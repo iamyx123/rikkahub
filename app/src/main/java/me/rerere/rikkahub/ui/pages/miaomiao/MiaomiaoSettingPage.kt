@@ -68,13 +68,12 @@ import me.rerere.hugeicons.stroke.Printer
 import me.rerere.hugeicons.stroke.TextFont
 import me.rerere.hugeicons.stroke.ViewOff
 import me.rerere.hugeicons.stroke.View
-import me.rerere.highlight.Highlighter
 import me.rerere.rikkahub.data.datastore.MiaomiaoImportMode
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.miaomiao.MiaomiaoService
 import me.rerere.rikkahub.data.paperang.PaperangPrinter
 import me.rerere.rikkahub.data.zyb.ZybClient
-import me.rerere.rikkahub.ui.components.message.PrintableMessageContent
+import me.rerere.rikkahub.ui.components.message.PrintPreview
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -175,6 +174,8 @@ fun MiaomiaoSettingPage(
                     updatePrinter { it.copy(autoReconnect = v) }
                     printer.setAutoReconnect(v)
                 },
+                feedAfter = prtCfg.feedAfter,
+                onFeedAfterChange = { f -> updatePrinter { it.copy(feedAfter = f) } },
             )
 
             PrintFontCard(
@@ -364,9 +365,7 @@ private fun PrintFontCard(
     fontScale: Float,
     onScaleChange: (Float) -> Unit,
 ) {
-    val highlighter: Highlighter = koinInject()
-    val settings = LocalSettings.current
-    // sliderValue 跟随手指，previewScale 仅松手后更新，避免逐帧重渲染公式卡顿
+    // sliderValue 跟随手指，previewScale 仅松手后更新，避免逐帧重渲染卡顿
     var sliderValue by remember(fontScale) { mutableStateOf(fontScale) }
     var previewScale by remember(fontScale) { mutableStateOf(fontScale) }
     val sample = "### 解题示例\n\n" +
@@ -400,18 +399,16 @@ private fun PrintFontCard(
             )
             Text("${(sliderValue * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
         }
-        Box(
+        PrintPreview(
+            text = sample,
+            scale = previewScale,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 260.dp)
+                .heightIn(max = 300.dp)
                 .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
                 .background(Color.White, RoundedCornerShape(8.dp))
-                .padding(6.dp)
-                .verticalScroll(rememberScrollState()),
-            contentAlignment = Alignment.TopCenter,
-        ) {
-            PrintableMessageContent(text = sample, fontScale = previewScale, highlighter = highlighter, settings = settings)
-        }
+                .padding(4.dp),
+        )
     }
 }
 
@@ -428,12 +425,15 @@ private fun PrinterCard(
     onDensityChange: (Int) -> Unit,
     onToggleGray: (Boolean) -> Unit,
     onToggleAutoReconnect: (Boolean) -> Unit,
+    feedAfter: Int,
+    onFeedAfterChange: (Int) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
     val status by printer.status.collectAsState()
     val scanResults by printer.scanResults.collectAsState()
     var densityLocal by remember(density) { mutableStateOf(density.toFloat()) }
+    var feedLocal by remember(feedAfter) { mutableStateOf(feedAfter.toFloat()) }
 
     val blePermissions = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -532,6 +532,15 @@ private fun PrinterCard(
             onValueChange = { densityLocal = it },
             onValueChangeFinished = { onDensityChange(densityLocal.toInt().coerceIn(1, 255)) },
             valueRange = 1f..255f,
+        )
+
+        // 打印后走纸（可选，默认 0 不走；需要走一小段方便撕纸时再调）
+        Text("打印后走纸：${feedLocal.toInt()} 行（0=不走）", style = MaterialTheme.typography.labelLarge)
+        Slider(
+            value = feedLocal,
+            onValueChange = { feedLocal = it },
+            onValueChangeFinished = { onFeedAfterChange(feedLocal.toInt().coerceIn(0, 80)) },
+            valueRange = 0f..80f,
         )
 
         // 灰度/黑白
