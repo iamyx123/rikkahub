@@ -346,8 +346,9 @@ class PaperangPrinter(
             deviceAddress = address,
             message = null,
         )
-        // 自动检测纸张宽度
-        val width = detectPaperWidth()
+        // 纸张宽度：手动覆盖优先，否则自动检测
+        val override = settingsStore.settingsFlow.value.displaySetting.paperangPrinter.paperWidthOverride
+        val width = if (override > 0) override else detectPaperWidth()
         if (width != null) _status.value = _status.value.copy(paperWidthPx = width)
         true
     }
@@ -458,11 +459,17 @@ class PaperangPrinter(
 
     // ─── 打印 ───
 
+    /** 打印实际使用的纸张宽度（px）：手动覆盖优先，否则用检测/默认值。 */
+    fun effectivePaperWidth(): Int {
+        val override = settingsStore.settingsFlow.value.displaySetting.paperangPrinter.paperWidthOverride
+        return if (override > 0) override else _status.value.paperWidthPx.takeIf { it > 0 } ?: DEFAULT_WIDTH
+    }
+
     /** 黑白/灰度打印一张位图；返回是否成功。density 1-255。 */
     suspend fun printBitmap(bitmap: android.graphics.Bitmap, grayscale: Boolean, density: Int = 90, feedAfter: Int = 0): Result<Unit> =
         withContext(Dispatchers.IO) {
             if (gatt == null || writeChar == null) return@withContext Result.failure(IllegalStateException("打印机未连接"))
-            val width = _status.value.paperWidthPx.takeIf { it > 0 } ?: DEFAULT_WIDTH
+            val width = effectivePaperWidth()
             runCatching {
                 if (grayscale) printGray(bitmap, width, density, feedAfter)
                 else printBw(bitmap, width, density, feedAfter)
@@ -542,8 +549,13 @@ class PaperangPrinter(
         sendCommand(PaperangProtocol.PARENT_THERMALPRINTER, PaperangProtocol.TP_SET_MOVE_PAPER, PaperangProtocol.u16(lines))
     }
 
-    /** 重新检测当前纸张宽度并更新状态（供打印预览刷新纸张信息）。 */
+    /** 重新检测当前纸张宽度并更新状态（供打印预览刷新纸张信息）。手动覆盖优先。 */
     suspend fun refreshPaperWidth(): Int? = withContext(Dispatchers.IO) {
+        val override = settingsStore.settingsFlow.value.displaySetting.paperangPrinter.paperWidthOverride
+        if (override > 0) {
+            _status.value = _status.value.copy(paperWidthPx = override)
+            return@withContext override
+        }
         if (gatt == null || writeChar == null) return@withContext null
         val w = detectPaperWidth()
         if (w != null) _status.value = _status.value.copy(paperWidthPx = w)

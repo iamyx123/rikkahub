@@ -152,6 +152,11 @@ fun MiaomiaoSettingPage(
                 density = prtCfg.density,
                 grayscale = prtCfg.grayscale,
                 autoReconnect = prtCfg.autoReconnect,
+                paperWidthOverride = prtCfg.paperWidthOverride,
+                onSelectPaperWidth = { w ->
+                    updatePrinter { it.copy(paperWidthOverride = w) }
+                    scope.launch { runCatching { printer.refreshPaperWidth() } }
+                },
                 onConnect = { addr, name ->
                     updatePrinter { it.copy(deviceAddress = addr, deviceName = name) }
                     printer.setAutoReconnect(prtCfg.autoReconnect)
@@ -416,6 +421,8 @@ private fun PrinterCard(
     density: Int,
     grayscale: Boolean,
     autoReconnect: Boolean,
+    paperWidthOverride: Int,
+    onSelectPaperWidth: (Int) -> Unit,
     onConnect: (String, String) -> Unit,
     onDisconnect: () -> Unit,
     onDensityChange: (Int) -> Unit,
@@ -500,6 +507,21 @@ private fun PrinterCard(
                 }
             }
         }
+
+        HorizontalDivider()
+
+        // 纸张宽度（全局默认，自动检测不准时手动指定；设为具体尺寸后不再依赖检测）
+        Text("纸张尺寸", style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            EinkChip(label = "自动检测", selected = paperWidthOverride == 0) { onSelectPaperWidth(0) }
+            EinkChip(label = "2寸 (576)", selected = paperWidthOverride == 576) { onSelectPaperWidth(576) }
+            EinkChip(label = "3寸 (864)", selected = paperWidthOverride == 864) { onSelectPaperWidth(864) }
+        }
+        Text(
+            "自动检测在部分机型不准（可能把 3 寸识别成 2 寸）。用哪种纸就选哪种，打印会按该宽度填满。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         HorizontalDivider()
 

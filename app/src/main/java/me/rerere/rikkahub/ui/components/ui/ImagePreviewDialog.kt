@@ -11,17 +11,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import android.graphics.BitmapFactory
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
-import androidx.core.net.toFile
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import coil3.compose.rememberAsyncImagePainter
@@ -34,9 +36,7 @@ import me.rerere.hugeicons.stroke.Download01
 import me.rerere.hugeicons.stroke.Printer
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.paperang.PaperangPrinter
-import me.rerere.rikkahub.data.paperang.ensureLocalImageUri
 import me.rerere.rikkahub.data.paperang.printImageSource
-import me.rerere.rikkahub.ui.components.ai.useCropLauncher
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
 import okhttp3.OkHttpClient
@@ -74,37 +74,10 @@ fun ImagePreviewDialog(
         }
     }
 
-    // 长按打印 -> 裁切 -> 只打印裁切区域（省纸）
-    // 注意：裁切文件会在回调返回后被 useCropLauncher 删除，因此这里同步读入内存再异步打印
-    val (_, launchCrop) = useCropLauncher(
-        onCroppedImageReady = { croppedUri ->
-            val bitmap = runCatching { BitmapFactory.decodeFile(croppedUri.toFile().path) }.getOrNull()
-            if (bitmap == null) {
-                toaster.show(message = "裁切图读取失败", type = ToastType.Error)
-            } else {
-                val cfg = settings.displaySetting.paperangPrinter
-                lifecycleOwner.lifecycleScope.launch {
-                    toaster.show("正在打印…")
-                    printer.printBitmap(bitmap, grayscale = cfg.grayscale, density = cfg.density, feedAfter = 0)
-                        .onSuccess { toaster.show(message = "已发送到打印机", type = ToastType.Success) }
-                        .onFailure { toaster.show(message = "打印失败: ${it.message}", type = ToastType.Error) }
-                    if (!bitmap.isRecycled) bitmap.recycle()
-                }
-            }
-        },
-    )
-    fun startCropPrint() {
-        if (!ready()) return
-        lifecycleOwner.lifecycleScope.launch {
-            toaster.show("正在准备裁切…")
-            val local = ensureLocalImageUri(context, images[state.currentPage], okHttpClient)
-            if (local == null) {
-                toaster.show(message = "图片加载失败", type = ToastType.Error)
-                return@launch
-            }
-            toaster.dismissAll()
-            launchCrop(local)
-        }
+    // 长按打印 -> 打开打印预览窗口（可裁切、调节图片在纸上大小）
+    var printPreviewSource by remember { mutableStateOf<String?>(null) }
+    printPreviewSource?.let { src ->
+        ImagePrintPreviewDialog(source = src, onDismiss = { printPreviewSource = null })
     }
 
     Dialog(
@@ -161,7 +134,7 @@ fun ImagePreviewDialog(
                             onClick = {
                                 if (ready()) printSource(images[state.currentPage])
                             },
-                            onLongClick = { startCropPrint() },
+                            onLongClick = { printPreviewSource = images[state.currentPage] },
                         ),
                     contentAlignment = Alignment.Center,
                 ) {

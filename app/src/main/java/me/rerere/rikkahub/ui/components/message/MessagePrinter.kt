@@ -81,10 +81,14 @@ fun PrintableMessageContent(
     val navBackStack = remember { mutableStateListOf<NavKey>() }
     val navigator = remember { Navigator(navBackStack) }
     val toasterState = rememberToasterState()
+    // 标题(#/##)字号走 displaySetting.fontSizeRatio，这里把它设为字号倍率，让标题也随字体一起缩放
+    val printSettings = remember(settings, fontScale) {
+        settings.copy(displaySetting = settings.displaySetting.copy(fontSizeRatio = fontScale))
+    }
     RikkahubTheme {
         CompositionLocalProvider(
             LocalHighlighter provides highlighter,
-            LocalSettings provides settings,
+            LocalSettings provides printSettings,
             LocalNavController provides navigator,
             LocalToaster provides toasterState,
         ) {

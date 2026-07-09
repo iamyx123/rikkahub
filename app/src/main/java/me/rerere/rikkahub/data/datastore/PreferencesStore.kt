@@ -684,6 +684,8 @@ data class PaperangPrinterConfig(
     val autoReconnect: Boolean = true,
     val feedAfter: Int = 0,          // 打印后走纸行数（0=不走纸，N2 有自动走纸机制，避免浪费纸张）
     val printFontScale: Float = 1.0f,// AI 回复打印字体大小倍率（0.5~2.0）
+    // 纸张宽度手动覆盖（px）：0=自动检测，576=2寸，864=3寸；检测不准时手动指定
+    val paperWidthOverride: Int = 0,
 )
 
 // 电脑端 Screenshotter 服务端配置（仅本地局域网使用，IP+端口持久化）
