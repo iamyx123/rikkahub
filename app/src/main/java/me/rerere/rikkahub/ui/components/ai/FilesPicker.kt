@@ -40,7 +40,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
@@ -135,8 +134,8 @@ internal fun FilesPicker(
             .padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.Start),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             TakePicButton(onLaunchCamera = onTakePic, onLongClick = onConfigureScreenshot)
@@ -305,7 +304,9 @@ internal fun FilesPicker(
             settings = settings,
             onUpdateAssistant = onUpdateAssistant,
             onUpdateConversation = onUpdateConversation,
-            onDismiss = { onShowInjectionSheetChange(false) })
+            onDismiss = { onShowInjectionSheetChange(false) },
+            onDismissAll = onDismiss,
+        )
     }
 
     // Compress Context Dialog
@@ -412,10 +413,10 @@ private fun InjectionQuickConfigSheet(
     settings: Settings,
     onUpdateAssistant: (Assistant) -> Unit,
     onUpdateConversation: (Conversation) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onDismissAll: () -> Unit,
 ) {
     val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
-    val scope = rememberCoroutineScope()
     val navController = LocalNavController.current
 
     ModalBottomSheet(
@@ -437,25 +438,16 @@ private fun InjectionQuickConfigSheet(
                 onUpdateConversation = onUpdateConversation,
                 modifier = Modifier.weight(1f),
                 onNavigateToQuickMessages = {
-                    scope.launch {
-                        sheetState.hide()
-                        onDismiss()
-                        navController.navigate(Screen.QuickMessages)
-                    }
+                    onDismissAll()
+                    navController.navigate(Screen.QuickMessages)
                 },
                 onNavigateToPrompts = {
-                    scope.launch {
-                        sheetState.hide()
-                        onDismiss()
-                        navController.navigate(Screen.Prompts)
-                    }
+                    onDismissAll()
+                    navController.navigate(Screen.Prompts)
                 },
                 onNavigateToSkills = {
-                    scope.launch {
-                        sheetState.hide()
-                        onDismiss()
-                        navController.navigate(Screen.Skills)
-                    }
+                    onDismissAll()
+                    navController.navigate(Screen.Skills)
                 })
 
             Spacer(modifier = Modifier.height(16.dp))

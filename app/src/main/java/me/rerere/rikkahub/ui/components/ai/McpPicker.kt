@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -278,11 +279,13 @@ fun McpPicker(
     assistant: Assistant,
     servers: List<McpServerConfig>,
     modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
     onUpdateAssistant: (Assistant) -> Unit
 ) {
     val mcpManager = koinInject<McpManager>()
     LazyColumn(
         modifier = modifier.fillMaxSize(),
+        contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         items(servers.fastFilter { it.commonOptions.enable }) { server ->
@@ -308,6 +311,10 @@ fun McpPicker(
                             modifier = Modifier.size(24.dp)
                         )
                         is McpStatus.Error -> Icon(HugeIcons.Alert01, null)
+                        McpStatus.NeedsAuthorization -> Icon(HugeIcons.Alert01, null)
+                        McpStatus.Authorizing -> CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
                     Column(
                         modifier = Modifier.weight(1f),
@@ -324,6 +331,8 @@ fun McpPicker(
                                 is McpStatus.Connected -> "Connected"
                                 is McpStatus.Reconnecting -> "Reconnecting (${s.attempt}/${s.maxAttempts})"
                                 is McpStatus.Error -> "Error: ${s.message}"
+                                is McpStatus.NeedsAuthorization -> "Needs authorization"
+                                is McpStatus.Authorizing -> "Authorizing"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = LocalContentColor.current.copy(alpha = 0.8f),

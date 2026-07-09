@@ -1,14 +1,19 @@
 package me.rerere.rikkahub.ui.components.message.tools
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalIconButton
@@ -21,16 +26,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -48,6 +57,8 @@ import me.rerere.hugeicons.stroke.Message02
 import me.rerere.hugeicons.stroke.QuillWrite01
 import me.rerere.hugeicons.stroke.Refresh01
 import me.rerere.hugeicons.stroke.Search01
+import me.rerere.hugeicons.stroke.Calendar03
+import me.rerere.hugeicons.stroke.CalendarAdd01
 import me.rerere.hugeicons.stroke.SmartPhone01
 import me.rerere.hugeicons.stroke.Time02
 import me.rerere.hugeicons.stroke.VolumeHigh
@@ -495,6 +506,59 @@ object GetScreenTimeToolUI : ToolUIRenderer {
     }
 }
 
+object CalendarQueryToolUI : ToolUIRenderer {
+    override val toolName: String = "calendar_query"
+
+    override fun icon(context: ToolUIContext): ImageVector = HugeIcons.Calendar03
+
+    @Composable
+    override fun title(context: ToolUIContext): String =
+        stringResource(R.string.chat_message_tool_calendar_query)
+
+    private fun events(context: ToolUIContext): List<JsonElement> =
+        context.content?.jsonObjectOrNull?.get("events")?.let { it as? JsonArray } ?: emptyList()
+
+    override fun hasSummary(context: ToolUIContext): Boolean = events(context).isNotEmpty()
+
+    @Composable
+    override fun Summary(context: ToolUIContext) {
+        val events = events(context)
+        if (events.isEmpty()) return
+        Column(
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.shimmer(isLoading = context.loading),
+        ) {
+            Text(
+                text = stringResource(R.string.chat_message_tool_search_results_count, events.size),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+            )
+            events.take(3).forEach { event ->
+                val title = event.getStringContent("title") ?: return@forEach
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+object CalendarCreateToolUI : ToolUIRenderer {
+    override val toolName: String = "calendar_create"
+
+    override fun icon(context: ToolUIContext): ImageVector = HugeIcons.CalendarAdd01
+
+    @Composable
+    override fun title(context: ToolUIContext): String {
+        val eventTitle = context.arguments.getStringContent("title") ?: ""
+        return stringResource(R.string.chat_message_tool_calendar_create, eventTitle)
+    }
+}
+
 @Composable
 private fun ScreenTimePreview(content: JsonElement, apps: List<JsonElement>) {
     val totalMinutes = content.jsonObjectOrNull?.get("total_minutes")
@@ -610,6 +674,10 @@ private fun SearchWebPreview(
     val items = content.jsonObject["items"]?.jsonArray ?: emptyList()
     val answer = content.getStringContent("answer")
     val query = arguments.getStringContent("query") ?: ""
+    val images = content.jsonObject["images"]?.jsonArray
+        ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+        ?.filter { it.isNotBlank() }
+        ?: emptyList()
 
     LazyColumn(
         modifier = Modifier
@@ -635,6 +703,28 @@ private fun SearchWebPreview(
                             .fillMaxWidth(),
                         style = MaterialTheme.typography.bodySmall
                     )
+                }
+            }
+        }
+
+        if (images.isNotEmpty()) {
+            item {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    items(images) { imageUrl ->
+                        AsyncImage(
+                            model = imageUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .height(120.dp)
+                                .width(160.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { context.openUrl(imageUrl) },
+                        )
+                    }
                 }
             }
         }

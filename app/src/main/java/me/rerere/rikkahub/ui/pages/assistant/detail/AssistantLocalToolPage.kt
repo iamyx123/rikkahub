@@ -1,7 +1,9 @@
 package me.rerere.rikkahub.ui.pages.assistant.detail
 
+import android.Manifest
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -26,6 +28,9 @@ import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionInfo
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
+import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.hasUsageStatsPermission
@@ -60,7 +65,7 @@ fun AssistantLocalToolPage(id: String) {
         containerColor = CustomColors.topBarColors.containerColor,
     ) { innerPadding ->
         AssistantLocalToolContent(
-            modifier = Modifier.padding(innerPadding),
+            innerPadding = innerPadding,
             assistant = assistant,
             onUpdate = { vm.update(it) }
         )
@@ -69,7 +74,7 @@ fun AssistantLocalToolPage(id: String) {
 
 @Composable
 private fun AssistantLocalToolContent(
-    modifier: Modifier = Modifier,
+    innerPadding: PaddingValues,
     assistant: Assistant,
     onUpdate: (Assistant) -> Unit
 ) {
@@ -78,12 +83,32 @@ private fun AssistantLocalToolContent(
     val permissionRequiredText =
         stringResource(R.string.assistant_page_local_tools_screen_time_permission_required)
 
+    val calendarPermissionState = rememberPermissionState(
+        permissions = setOf(
+            PermissionInfo(
+                permission = Manifest.permission.READ_CALENDAR,
+                displayName = { Text(stringResource(R.string.permission_calendar_read)) },
+                usage = { Text(stringResource(R.string.permission_calendar_read_desc)) },
+                required = true
+            ),
+            PermissionInfo(
+                permission = Manifest.permission.WRITE_CALENDAR,
+                displayName = { Text(stringResource(R.string.permission_calendar_write)) },
+                usage = { Text(stringResource(R.string.permission_calendar_write_desc)) },
+                required = true
+            ),
+        )
+    )
+    PermissionManager(permissionState = calendarPermissionState)
+
     fun toggleLocalTool(option: LocalToolOption, enabled: Boolean) {
-        // Screen time needs the special "Usage access" permission; guide the user to grant
-        // it right when the switch is turned on, instead of failing later on first use.
         if (enabled && option == LocalToolOption.ScreenTime && !context.hasUsageStatsPermission()) {
             toaster.show(message = permissionRequiredText, type = ToastType.Warning)
             context.openUsageAccessSettings()
+        }
+        if (enabled && option == LocalToolOption.Calendar && !calendarPermissionState.allPermissionsGranted) {
+            calendarPermissionState.requestPermissions()
+            return
         }
         val newLocalTools = if (enabled) {
             assistant.localTools + option
@@ -94,10 +119,11 @@ private fun AssistantLocalToolContent(
     }
 
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
             .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(innerPadding)
             .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -183,6 +209,20 @@ private fun AssistantLocalToolContent(
                     Switch(
                         checked = assistant.localTools.contains(LocalToolOption.ScreenTime),
                         onCheckedChange = { toggleLocalTool(LocalToolOption.ScreenTime, it) }
+                    )
+                }
+            )
+            item(
+                headlineContent = {
+                    Text(stringResource(R.string.assistant_page_local_tools_calendar_title))
+                },
+                supportingContent = {
+                    Text(stringResource(R.string.assistant_page_local_tools_calendar_desc))
+                },
+                trailingContent = {
+                    Switch(
+                        checked = assistant.localTools.contains(LocalToolOption.Calendar),
+                        onCheckedChange = { toggleLocalTool(LocalToolOption.Calendar, it) }
                     )
                 }
             )
