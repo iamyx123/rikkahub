@@ -99,6 +99,7 @@ import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionReadMediaImages
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.data.miaomiao.MiaomiaoImportBus
 import me.rerere.rikkahub.data.miaomiao.MiaomiaoService
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -167,6 +168,17 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     }
 
     val inputState = vm.inputState
+
+    // 错题浏览页多选导入 -> 加入当前输入框（图片直接进图，文字为每题一个 TXT 附件）。
+    // 用带缓冲的 Channel 投递，聊天页在导航期间被销毁再返回也不会丢失结果。
+    val miaomiaoImportBus: MiaomiaoImportBus = koinInject()
+    LaunchedEffect(Unit) {
+        miaomiaoImportBus.imports.collect { payload ->
+            if (payload.images.isNotEmpty()) inputState.addImages(payload.images)
+            if (payload.documents.isNotEmpty()) inputState.addFiles(payload.documents)
+            inputState.requestInputFocus()
+        }
+    }
 
     // 初始化输入状态（处理传入的 files 和 text 参数）
     LaunchedEffect(files, text) {
@@ -878,7 +890,7 @@ private fun ChatFilesPickerSheet(
         }
     }
 
-    // 喵喵机错题：短按导入作业帮最新错题（图片/文字），长按进入设置
+    // 喵喵机错题：短按导入作业帮最新错题；长按打开错题浏览页（多选/翻历史）
     val onImportErrorbook: () -> Unit = {
         scope.launch {
             toaster.show("正在获取最新错题…", type = ToastType.Info)
@@ -894,8 +906,10 @@ private fun ChatFilesPickerSheet(
                         added = true
                     }
                 }
+                // 文字以「一题一个 TXT」的附件形式导入，避免污染输入框中的提问
                 if (miaomiaoService.shouldAddText(cfg.importMode, hasImages, imp.hasText) && imp.questionText != null) {
-                    inputState.appendText(imp.questionText)
+                    val doc = filesManager.createChatTextFile(imp.questionText, "错题-${imp.subjectName}")
+                    inputState.addFiles(listOf(doc))
                     added = true
                 }
                 if (added) {
@@ -911,9 +925,9 @@ private fun ChatFilesPickerSheet(
             }
         }
     }
-    val onConfigureMiaomiao: () -> Unit = {
+    val onOpenErrorbook: () -> Unit = {
         dismissAll()
-        navController.navigate(Screen.SettingMiaomiao)
+        navController.navigate(Screen.MiaomiaoErrorbook)
     }
 
     val filesSheetState = rememberBottomSheetState(
@@ -968,7 +982,7 @@ private fun ChatFilesPickerSheet(
             onImportLatestPhotos = onImportLatestPhotos,
             onConfigurePhotoImport = { showPhotoImportConfig = true },
             onImportErrorbook = onImportErrorbook,
-            onConfigureMiaomiao = onConfigureMiaomiao,
+            onOpenErrorbook = onOpenErrorbook,
         )
     }
 

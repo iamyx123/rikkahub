@@ -124,7 +124,7 @@ internal fun FilesPicker(
     onImportLatestPhotos: () -> Unit = {},
     onConfigurePhotoImport: () -> Unit = {},
     onImportErrorbook: () -> Unit = {},
-    onConfigureMiaomiao: () -> Unit = {},
+    onOpenErrorbook: () -> Unit = {},
 ) {
     val settings = LocalSettings.current
     val provider = settings.getCurrentChatModel()?.findProvider(providers = settings.providers)
@@ -158,8 +158,8 @@ internal fun FilesPicker(
             // 短按：系统文件选择器(SAF)；长按：第三方文件管理器(ACTION_GET_CONTENT，可多选)
             FilePickButton(onClick = onPickFile, onLongClick = onPickFileThirdParty)
 
-            // 喵喵机错题：短按导入作业帮最新错题（图片/文字），长按进入设置（账号登录、打印机蓝牙配置）
-            MiaomiaoErrorbookButton(onClick = onImportErrorbook, onLongClick = onConfigureMiaomiao)
+            // 喵喵机错题：短按导入作业帮最新错题，长按打开错题浏览页（按科目多选、翻查历史、一键导入）
+            MiaomiaoErrorbookButton(onClick = onImportErrorbook, onLongClick = onOpenErrorbook)
         }
 
         HorizontalDivider(
@@ -532,7 +532,7 @@ private fun MiaomiaoErrorbookButton(onClick: () -> Unit = {}, onLongClick: (() -
             Icon(HugeIcons.BookEdit, null)
         },
         text = {
-            // 短按导入最新错题，长按配置（账号登录 / 打印机蓝牙）
+            // 短按导入最新错题，长按打开错题浏览（按科目多选）
             Text("喵喵机错题")
         },
         onLongClick = onLongClick,

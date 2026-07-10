@@ -230,23 +230,25 @@ class FilesManager(
         Pair(count, size)
     }
 
-    fun createChatTextFile(text: String): UIMessagePart.Document {
+    fun createChatTextFile(text: String, displayName: String = "pasted_text.txt"): UIMessagePart.Document {
         val dir = context.filesDir.resolve(FileFolders.UPLOAD)
         if (!dir.exists()) {
             dir.mkdirs()
         }
-        val fileName = buildUuidFileName(displayName = "pasted_text.txt", mimeType = "text/plain")
+        val safeName = displayName.ifBlank { "text" }
+            .let { if (it.endsWith(".txt", ignoreCase = true)) it else "$it.txt" }
+        val fileName = buildUuidFileName(displayName = safeName, mimeType = "text/plain")
         val file = dir.resolve(fileName)
         file.writeText(text)
         trackManagedFile(
             folder = FileFolders.UPLOAD,
             file = file,
-            displayName = "pasted_text.txt",
+            displayName = safeName,
             mimeType = "text/plain"
         )
         return UIMessagePart.Document(
             url = file.toUri().toString(),
-            fileName = "pasted_text.txt",
+            fileName = safeName,
             mime = "text/plain"
         )
     }

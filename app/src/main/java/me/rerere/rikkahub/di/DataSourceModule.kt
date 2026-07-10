@@ -74,6 +74,11 @@ val dataSourceModule = module {
         )
     }
 
+    // 错题浏览页 -> 聊天输入框 的投递通道
+    single {
+        me.rerere.rikkahub.data.miaomiao.MiaomiaoImportBus()
+    }
+
     single {
         val context: Context = get()
         Room.databaseBuilder(context, AppDatabase::class.java, "rikka_hub")

@@ -6,7 +6,7 @@ import me.rerere.rikkahub.data.zyb.ZybClient
 
 /**
  * 喵喵机错题本高层服务：登录 -> 选科目 -> 取最新错题 -> 下载图片 + 组织文字。
- * 供聊天页「喵喵机错题」按钮与设置页调用。
+ * 供聊天页「喵喵机错题」按钮、错题浏览页与设置页调用。
  */
 class MiaomiaoService(
     private val zyb: ZybClient,
@@ -27,9 +27,31 @@ class MiaomiaoService(
     suspend fun ensureLogin(): Result<Unit> {
         val cfg = settingsStore.settingsFlow.value.displaySetting.miaomiaoErrorbook
         if (cfg.phone.isBlank() || cfg.password.isBlank()) {
-            return Result.failure(IllegalStateException("请先长按「喵喵机错题」进入设置登录作业帮账号"))
+            return Result.failure(IllegalStateException("请先在 设置 → 喵喵机 里登录作业帮账号"))
         }
         return zyb.login(cfg.phone, cfg.password)
+    }
+
+    /** 登录后拉取全部错题科目（分类）。供浏览页顶部分类使用。 */
+    suspend fun listGroups(): Result<List<ZybClient.ErrGroup>> {
+        ensureLogin().getOrElse { return Result.failure(it) }
+        return zyb.getErrGroups()
+    }
+
+    /** 登录后按科目分页拉取错题列表，返回 (总数, 当前页列表)。 */
+    suspend fun listItems(groupId: Int, page: Int, size: Int): Result<Pair<Int, List<ZybClient.ErrItem>>> {
+        ensureLogin().getOrElse { return Result.failure(it) }
+        return zyb.getErrList(groupId, page, size)
+    }
+
+    /** 下载某道错题的全部图片并组织文字，得到可导入的数据。 */
+    suspend fun buildImport(subjectName: String, item: ZybClient.ErrItem): ErrbookImport {
+        val includeAnalysis = settingsStore.settingsFlow.value.displaySetting.miaomiaoErrorbook.includeAnalysis
+        val images = item.images.mapNotNull { (_, url) ->
+            runCatching { zyb.downloadImage(url) }.getOrNull()
+        }
+        val text = buildText(subjectName, item, includeAnalysis)
+        return ErrbookImport(subjectName, images, text, item.text.hasText)
     }
 
     /** 拉取「最新一题」并下载其所有图片、组织文字。 */
@@ -59,11 +81,7 @@ class MiaomiaoService(
             g to (bestItem ?: return Result.failure(IllegalStateException("错题本里还没有错题")))
         }
 
-        val images = item.images.mapNotNull { (_, url) ->
-            runCatching { zyb.downloadImage(url) }.getOrNull()
-        }
-        val text = buildText(group.name, item, cfg.includeAnalysis)
-        return Result.success(ErrbookImport(group.name, images, text, item.text.hasText))
+        return Result.success(buildImport(group.name, item))
     }
 
     private fun buildText(subject: String, item: ZybClient.ErrItem, includeAnalysis: Boolean): String? {

@@ -115,6 +115,7 @@ import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesGeneralPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesUIPage
 import me.rerere.rikkahub.ui.pages.setting.SettingThemePage
 import me.rerere.rikkahub.ui.pages.setting.SettingDonatePage
+import me.rerere.rikkahub.ui.pages.miaomiao.MiaomiaoErrorbookPage
 import me.rerere.rikkahub.ui.pages.miaomiao.MiaomiaoSettingPage
 import me.rerere.rikkahub.ui.pages.setting.SettingFilesPage
 import me.rerere.rikkahub.ui.pages.setting.SettingMcpPage
@@ -504,6 +505,10 @@ class RouteActivity : ComponentActivity() {
                                 MiaomiaoSettingPage()
                             }
 
+                            entry<Screen.MiaomiaoErrorbook> {
+                                MiaomiaoErrorbookPage()
+                            }
+
                             entry<Screen.SettingWeb> {
                                 SettingWebPage()
                             }
@@ -715,6 +720,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object SettingMiaomiao : Screen
+
+    @Serializable
+    data object MiaomiaoErrorbook : Screen
 
     @Serializable
     data object SettingWeb : Screen
