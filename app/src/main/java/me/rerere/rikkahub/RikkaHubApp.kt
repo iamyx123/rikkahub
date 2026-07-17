@@ -2,10 +2,10 @@ package me.rerere.rikkahub
 
 import android.app.Activity
 import android.app.Application
-import android.os.Bundle
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Bundle
 import android.util.Log
 import androidx.compose.foundation.ComposeFoundationFlags
 import androidx.compose.runtime.Composer
@@ -13,8 +13,6 @@ import androidx.compose.runtime.tooling.ComposeStackTraceMode
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import com.google.firebase.remoteconfig.FirebaseRemoteConfig
-import com.google.firebase.remoteconfig.remoteConfigSettings
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -61,14 +59,19 @@ class RikkaHubApp : Application() {
     override fun onCreate() {
         super.onCreate()
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
-            override fun onActivityResumed(activity: Activity) { currentActivity = activity }
+            override fun onActivityResumed(activity: Activity) {
+                currentActivity = activity
+            }
+
             override fun onActivityPaused(activity: Activity) {
                 if (currentActivity === activity) currentActivity = null
             }
-            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
-            override fun onActivityStarted(activity: Activity) {}
-            override fun onActivityStopped(activity: Activity) {}
-            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+            override fun onActivityStarted(activity: Activity) = Unit
+            override fun onActivityStopped(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+
             override fun onActivityDestroyed(activity: Activity) {
                 if (currentActivity === activity) currentActivity = null
             }
@@ -99,20 +102,11 @@ class RikkaHubApp : Application() {
         // cleanup workspace temp dirs (proot + rootfs /tmp)
         cleanupWorkspaceTempDirs()
 
-        // check workspace integrity (remove orphaned DB records after backup restore)
+        // check workspace integrity (mark workspaces with missing files as broken after backup restore)
         checkWorkspaceIntegrity()
 
         // sync upload files to DB
         syncManagedFiles()
-
-        // Init remote config
-        get<FirebaseRemoteConfig>().apply {
-            setConfigSettingsAsync(remoteConfigSettings {
-                minimumFetchIntervalInSeconds = 1800
-            })
-            setDefaultsAsync(R.xml.remote_config_defaults)
-            fetchAndActivate()
-        }
 
         // 提前创建喵喵机打印机管理器：注册前台/蓝牙监听并尝试自动连接上次记忆的设备
         runCatching { get<me.rerere.rikkahub.data.paperang.PaperangPrinter>() }

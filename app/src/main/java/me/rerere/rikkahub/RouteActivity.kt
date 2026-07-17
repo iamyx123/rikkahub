@@ -101,11 +101,15 @@ import me.rerere.rikkahub.ui.pages.extensions.skills.SkillDetailPage
 import me.rerere.rikkahub.ui.pages.extensions.skills.SkillsPage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspacePage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceDetailPage
+import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceFileEditorPage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceTerminalPage
+import me.rerere.workspace.WorkspaceStorageArea
 import me.rerere.rikkahub.ui.pages.favorite.FavoritePage
 import me.rerere.rikkahub.ui.pages.history.HistoryPage
 import me.rerere.rikkahub.ui.pages.imggen.ImageGenPage
 import me.rerere.rikkahub.ui.pages.log.LogPage
+import me.rerere.rikkahub.ui.pages.miaomiao.MiaomiaoErrorbookPage
+import me.rerere.rikkahub.ui.pages.miaomiao.MiaomiaoSettingPage
 import me.rerere.rikkahub.ui.pages.search.SearchPage
 import me.rerere.rikkahub.ui.pages.setting.SettingAboutPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesPage
@@ -115,8 +119,6 @@ import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesGeneralPage
 import me.rerere.rikkahub.ui.pages.setting.SettingPreferencesUIPage
 import me.rerere.rikkahub.ui.pages.setting.SettingThemePage
 import me.rerere.rikkahub.ui.pages.setting.SettingDonatePage
-import me.rerere.rikkahub.ui.pages.miaomiao.MiaomiaoErrorbookPage
-import me.rerere.rikkahub.ui.pages.miaomiao.MiaomiaoSettingPage
 import me.rerere.rikkahub.ui.pages.setting.SettingFilesPage
 import me.rerere.rikkahub.ui.pages.setting.SettingMcpPage
 import me.rerere.rikkahub.ui.pages.setting.SettingModelPage
@@ -179,10 +181,12 @@ class RouteActivity : ComponentActivity() {
                     ImageLoader.Builder(context)
                         .crossfade(true)
                         .components {
-                            add(OkHttpNetworkFetcherFactory(
-                                callFactory = { okHttpClient },
-                                cacheStrategy = { CacheControlCacheStrategy() },
-                            ))
+                            add(
+                                OkHttpNetworkFetcherFactory(
+                                    callFactory = { okHttpClient },
+                                    cacheStrategy = { CacheControlCacheStrategy() },
+                                )
+                            )
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                                 add(AnimatedImageDecoder.Factory())
                             } else {
@@ -208,7 +212,7 @@ class RouteActivity : ComponentActivity() {
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         if (enabled) {
-            // 通过主题属性使之后创建的对话框窗口继承全屏 (窗口 flag 不会被对话框继承),
+            // 通过主题属性使之后创建的对话框窗口继承全屏（窗口 flag 不会被对话框继承），
             // 避免 AlertDialog/BottomSheet 等弹窗夺焦时状态栏复现
             theme.applyStyle(R.style.ThemeOverlay_Rikkahub_Immersive, true)
             @Suppress("DEPRECATION")
@@ -224,7 +228,7 @@ class RouteActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        // 重新获得焦点时, 系统可能恢复状态栏, 需要重新应用沉浸模式
+        // 重新获得焦点时，系统可能恢复状态栏，需要重新应用沉浸模式
         if (hasFocus) {
             applyImmersiveMode(settingsStore.settingsFlow.value.displaySetting.enableImmersiveMode)
         }
@@ -262,7 +266,8 @@ class RouteActivity : ComponentActivity() {
         // Navigate to the chat screen if a conversation ID is provided
         intent.getStringExtra("conversationId")?.let { text ->
             navStack?.add(Screen.Chat(text))
-        }    }
+        }
+    }
 
     @OptIn(ExperimentalComposeUiApi::class)
     @Composable
@@ -354,7 +359,7 @@ class RouteActivity : ComponentActivity() {
                         entryProvider = entryProvider {
                             entry<Screen.Chat>(
                                 metadata = NavDisplay.transitionSpec { fadeIn() togetherWith fadeOut() }
-                                        + NavDisplay.popTransitionSpec { fadeIn() togetherWith fadeOut() }
+                                    + NavDisplay.popTransitionSpec { fadeIn() togetherWith fadeOut() }
                             ) { key ->
                                 ChatPage(
                                     id = Uuid.parse(key.id),
@@ -432,7 +437,7 @@ class RouteActivity : ComponentActivity() {
                             }
 
                             entry<Screen.WebView> { key ->
-                                WebViewPage(key.url, key.content)
+                                WebViewPage(key.url, key.contentId)
                             }
 
                             entry<Screen.SettingTheme> {
@@ -547,6 +552,14 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.WorkspaceTerminal> { key ->
                                 WorkspaceTerminalPage(key.id)
+                            }
+
+                            entry<Screen.WorkspaceFileEditor> { key ->
+                                WorkspaceFileEditorPage(
+                                    id = key.id,
+                                    area = WorkspaceStorageArea.valueOf(key.area),
+                                    path = key.path,
+                                )
                             }
 
                             entry<Screen.SkillDetail> { key ->
@@ -668,7 +681,7 @@ sealed interface Screen : NavKey {
     data object ImageGen : Screen
 
     @Serializable
-    data class WebView(val url: String = "", val content: String = "") : Screen
+    data class WebView(val url: String = "", val contentId: String = "") : Screen
 
     @Serializable
     data object SettingTheme : Screen
@@ -753,6 +766,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data class WorkspaceTerminal(val id: String) : Screen
+
+    @Serializable
+    data class WorkspaceFileEditor(val id: String, val area: String, val path: String) : Screen
 
     @Serializable
     data class SkillDetail(val skillName: String) : Screen

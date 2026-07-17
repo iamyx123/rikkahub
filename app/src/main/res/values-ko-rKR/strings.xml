@@ -91,7 +91,7 @@
   <string name="assistant_page_local_tools_javascript_engine_title">자바스크립트 엔진</string>
   <string name="assistant_page_local_tools_time_info_desc">기기에서 현재 날짜, 요일, 시간, 시간대 정보 가져오기</string>
   <string name="assistant_page_local_tools_time_info_title">시간 정보</string>
-  <string name="assistant_page_local_tools_tts_desc">AI가 기기의 TTS 엔진을 사용해 텍스트를 음성으로 읽어줍니다</string>
+  <string name="assistant_page_local_tools_tts_desc">AI가 선택한 TTS 서비스를 사용해 텍스트를 음성으로 읽어줍니다</string>
   <string name="assistant_page_local_tools_tts_title">텍스트 음성 변환</string>
   <string name="assistant_page_manage_memory_title">기억 관리</string>
   <string name="assistant_page_max_tokens">최대 토큰</string>
@@ -701,6 +701,12 @@
   <string name="setting_display_page_volume_key_scroll_ratio">스크롤 양</string>
   <string name="setting_display_page_volume_key_scroll_title">볼륨 키 페이지 스크롤</string>
   <string name="setting_files_page_cancel_action">취소</string>
+  <string name="setting_files_page_clean_action">정리</string>
+  <string name="setting_files_page_clean_confirmation">이 카테고리의 모든 파일이 영구적으로 삭제됩니다. 이 작업은 실행 취소할 수 없습니다.</string>
+  <string name="setting_files_page_clean_content_description">파일 정리</string>
+  <string name="setting_files_page_clean_failed_toast">일부 파일을 정리하지 못했습니다</string>
+  <string name="setting_files_page_clean_title">파일을 정리할까요?</string>
+  <string name="setting_files_page_cleaned_toast">파일을 정리했습니다</string>
   <string name="setting_files_page_delete_action">삭제</string>
   <string name="setting_files_page_delete_content_description">삭제</string>
   <string name="setting_files_page_delete_failed_toast">삭제 실패</string>
@@ -1277,5 +1283,6 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="chat_page_folder_add">새로 만들기</string>
   <string name="chat_page_delete_folder_confirm">폴더 "%1$s"를 삭제하시겠습니까? 내부의 대화는 삭제되지 않고 폴더에서만 제거됩니다.</string>
   <string name="chat_page_delete_folder_generating">이 폴더의 일부 대화가 아직 생성 중입니다. 삭제하기 전에 중지해 주세요.</string>
+  <string name="setting_display_page_tts_read_outside_brackets_title">TTS 괄호 안 내용 읽지 않기</string>
+  <string name="setting_display_page_tts_read_outside_brackets_desc">활성화하면 TTS가 괄호 안의 내용을 읽지 않습니다</string>
 </resources>
-
