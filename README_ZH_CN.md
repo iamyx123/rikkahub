@@ -119,4 +119,4 @@
 
 ## 📄 许可证
 
-[License](LICENSE)
+本项目基于 [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0) 开源。
