@@ -19,6 +19,8 @@
   <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
   <uses-permission
     android:name="android.permission.PACKAGE_USAGE_STATS"
@@ -62,6 +64,25 @@
       <action android:name="android.intent.action.MAIN" />
       <category android:name="android.intent.category.LAUNCHER" />
     </intent>
+    <!-- 学习桌面守护需识别实际系统文件选择器与权限控制器，避免误拦项目功能 -->
+    <intent>
+      <action android:name="android.intent.action.OPEN_DOCUMENT" />
+      <data android:mimeType="*/*" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.CREATE_DOCUMENT" />
+      <data android:mimeType="*/*" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.GET_CONTENT" />
+      <data android:mimeType="*/*" />
+    </intent>
+    <intent>
+      <action android:name="android.content.pm.action.REQUEST_PERMISSIONS" />
+    </intent>
+    <intent>
+      <action android:name="android.settings.MANAGE_APP_PERMISSIONS" />
+    </intent>
     <!-- 用于识别桌面 launcher 以便在屏幕使用时间中排除 -->
     <intent>
       <action android:name="android.intent.action.MAIN" />
@@ -88,6 +109,26 @@
       android:exported="false"
       android:label="@string/title_activity_safe_mode"
       android:theme="@style/Theme.Rikkahub" />
+    <activity
+      android:name=".StudyHomeActivity"
+      android:configChanges="keyboardHidden|orientation|screenSize"
+      android:clearTaskOnLaunch="true"
+      android:enabled="false"
+      android:excludeFromRecents="true"
+      android:exported="true"
+      android:launchMode="singleTask"
+      android:stateNotNeeded="true"
+      android:taskAffinity="${applicationId}.studyhome"
+      android:label="@string/study_desktop_home_label"
+      android:theme="@style/Theme.Rikkahub.StudyHome"
+      android:windowSoftInputMode="adjustResize">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.HOME" />
+      </intent-filter>
+    </activity>
     <activity
       android:name=".RouteActivity"
       android:configChanges="keyboardHidden|orientation|screenSize"
@@ -161,6 +202,40 @@
         android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
         android:value="local web server for LLM chat UI" />
     </service>
+
+    <service
+      android:name=".service.StudyKeepAliveService"
+      android:exported="false"
+      android:foregroundServiceType="specialUse">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="Maintains the user-enabled study desktop guard" />
+    </service>
+
+    <service
+      android:name=".data.study.StudyDesktopAccessibilityService"
+      android:description="@string/study_desktop_accessibility_description"
+      android:exported="true"
+      android:label="@string/study_desktop_accessibility_label"
+      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+      <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService" />
+      </intent-filter>
+      <meta-data
+        android:name="android.accessibilityservice"
+        android:resource="@xml/study_desktop_accessibility_service" />
+    </service>
+
+    <receiver
+      android:name=".data.study.StudyDesktopBootReceiver"
+      android:enabled="true"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+        <action android:name="android.intent.action.USER_UNLOCKED" />
+      </intent-filter>
+    </receiver>
 
     <provider
       android:name="androidx.core.content.FileProvider"

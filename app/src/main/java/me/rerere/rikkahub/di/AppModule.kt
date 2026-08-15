@@ -4,9 +4,12 @@ import com.google.firebase.Firebase
 import com.google.firebase.analytics.analytics
 import com.google.firebase.crashlytics.crashlytics
 import kotlinx.serialization.json.Json
+import me.rerere.highlight.CodeHighlighter
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.study.StudyDesktopContentRepository
+import me.rerere.rikkahub.data.study.StudyDesktopManager
 import me.rerere.rikkahub.service.ChatNotificationManager
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.utils.EmojiData
@@ -20,6 +23,10 @@ import org.koin.dsl.module
 
 val appModule = module {
     single<Json> { JsonInstant }
+    single { CodeHighlighter() }
+
+    single { StudyDesktopManager(get()) }
+    single { StudyDesktopContentRepository(get(), get()) }
 
     single {
         AppEventBus()

@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.pages.chat
 
+import androidx.activity.compose.BackHandler
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.ArrowDown01
@@ -69,6 +70,7 @@ import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -83,7 +85,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -163,6 +164,7 @@ fun ChatList(
     onAddBookmark: (nodeId: Uuid, scrollOffset: Int, label: String) -> Unit = { _, _, _ -> },
     onDeleteBookmark: (Uuid) -> Unit = {},
     onQuote: (String) -> Unit = {},
+    transientResetSignal: Int = 0,
 ) {
     AnimatedContent(
         targetState = previewMode,
@@ -209,6 +211,7 @@ fun ChatList(
                 onAddBookmark = onAddBookmark,
                 onDeleteBookmark = onDeleteBookmark,
                 onQuote = onQuote,
+                transientResetSignal = transientResetSignal,
             )
         }
     }
@@ -243,6 +246,7 @@ private fun ChatListNormal(
     onAddBookmark: (nodeId: Uuid, scrollOffset: Int, label: String) -> Unit = { _, _, _ -> },
     onDeleteBookmark: (Uuid) -> Unit = {},
     onQuote: (String) -> Unit = {},
+    transientResetSignal: Int = 0,
 ) {
     val scope = rememberCoroutineScope()
     val loadingState by rememberUpdatedState(loading)
@@ -549,6 +553,7 @@ private fun ChatListNormal(
                 onDeleteBookmark = onDeleteBookmark,
                 dragSensitivity = settings.displaySetting.bookmarkDragSensitivity,
                 dragRange = settings.displaySetting.bookmarkDragRange,
+                transientResetSignal = transientResetSignal,
             )
 
             // Suggestion
@@ -790,6 +795,7 @@ private fun BoxScope.MessageNavigator(
     onDeleteBookmark: (Uuid) -> Unit,
     dragSensitivity: Float = 1f,
     dragRange: Float = 1f,
+    transientResetSignal: Int = 0,
 ) {
     if (!show) return
     val density = LocalDensity.current
@@ -835,6 +841,23 @@ private fun BoxScope.MessageNavigator(
         // 拖动导航当前档位：-3顶 -2 -1 0中 1 2 3底；null=未拖动
         var navDetent by remember { mutableStateOf<Int?>(null) }
         var repositioning by remember { mutableStateOf(false) }
+        var gestureEpoch by remember { mutableIntStateOf(0) }
+
+        LaunchedEffect(transientResetSignal) {
+            if (transientResetSignal > 0) {
+                expanded = false
+                navDetent = null
+                repositioning = false
+                gestureEpoch++
+            }
+        }
+
+        BackHandler(enabled = expanded || navDetent != null || repositioning) {
+            expanded = false
+            navDetent = null
+            repositioning = false
+            gestureEpoch++ // 变更 pointerInput 键，确保取消仍在等待事件的旧手势。
+        }
 
         // 展开的书签面板：用对齐方式固定在按钮一侧、垂直居中（不依赖测量 -> 打开即到位，无跳动、无二次重刷）
         if (expanded) {
@@ -1012,13 +1035,14 @@ private fun BoxScope.MessageNavigator(
             modifier = Modifier
                 .offset { IntOffset(anchorX.roundToInt(), anchorY.roundToInt()) }
                 .size(buttonSize)
-                .pointerInput(maxWpx, maxHpx, onLeft) {
+                .pointerInput(maxWpx, maxHpx, onLeft, gestureEpoch) {
                     val slop = viewConfiguration.touchSlop
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         var mode = 0 // 0=未定(单击候选) 1=导航 2=移动
                         var dragged = false
                         val startY = down.position.y
+                        var completedByUp = false
                         // 单击 vs 按住分流：手指按住超过该阈值才显示导航目标梯；
                         // 在此之前松手 = 单击，只切换书签面板（两者不再互相干扰）。
                         val revealNav = scope.launch {
@@ -1043,7 +1067,12 @@ private fun BoxScope.MessageNavigator(
                             while (true) {
                                 val event = awaitPointerEvent()
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                if (change.changedToUp()) break
+                                if (!change.pressed) {
+                                    // 即使 UP/CANCEL 已被系统返回手势消费，也必须立刻结束并清理目标梯。
+                                    completedByUp = !change.isConsumed
+                                    break
+                                }
+                                if (change.isConsumed) break
                                 val dy = change.position.y - startY
                                 // 阈值时间未到就先滑动的，也立即进入导航（一气呵成的按住下滑）
                                 if (mode == 0 && kotlin.math.abs(dy) > slop) {
@@ -1069,18 +1098,22 @@ private fun BoxScope.MessageNavigator(
                         } finally {
                             revealNav.cancel()
                             longPress.cancel()
-                            when (mode) {
-                                1 -> {
-                                    // 从「按住显示的目标梯」松手：定位到当前档（中档=松手取消），不打开书签面板
-                                    val d = navDetent ?: 0
-                                    navDetent = null
-                                    performDetentNav(d, scope, state)
-                                }
+                            val finalDetent = navDetent ?: 0
+                            navDetent = null
+                            repositioning = false
+                            // 系统返回、窗口失焦或触摸屏蔽会取消手势；取消不能被当成正常松手。
+                            if (completedByUp) {
+                                when (mode) {
+                                    1 -> {
+                                        // 正常松手才执行当前档位导航；中档仍表示取消。
+                                        performDetentNav(finalDetent, scope, state)
+                                    }
 
-                                2 -> repositioning = false
-                                else -> {
-                                    // 单击（未达按住阈值、未拖动）：仅切换书签面板
-                                    expanded = !expanded
+                                    2 -> Unit
+                                    else -> {
+                                        // 正常单击（未达按住阈值、未拖动）：仅切换书签面板。
+                                        expanded = !expanded
+                                    }
                                 }
                             }
                         }

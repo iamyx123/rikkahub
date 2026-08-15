@@ -67,6 +67,7 @@ import me.rerere.rikkahub.data.db.DatabaseMigrationTracker
 import me.rerere.rikkahub.data.db.MigrationState
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.study.StudyDesktopManager
 import me.rerere.rikkahub.ui.activity.SafeModeActivity
 import me.rerere.rikkahub.ui.components.ui.TTSController
 import me.rerere.rikkahub.ui.context.LocalASRState
@@ -126,9 +127,11 @@ import me.rerere.rikkahub.ui.pages.setting.SettingProviderPage
 import me.rerere.rikkahub.ui.pages.setting.SettingSearchDetailPage
 import me.rerere.rikkahub.ui.pages.setting.SettingSearchPage
 import me.rerere.rikkahub.ui.pages.setting.SettingSpeechPage
+import me.rerere.rikkahub.ui.pages.setting.StudyDesktopSetupPage
 import me.rerere.rikkahub.ui.pages.setting.SettingWebPage
 import me.rerere.rikkahub.ui.pages.share.handler.ShareHandlerPage
 import me.rerere.rikkahub.ui.pages.stats.StatsPage
+import me.rerere.rikkahub.ui.pages.study.StudyDesktopDashboardPage
 import me.rerere.rikkahub.ui.pages.translator.TranslatorPage
 import me.rerere.rikkahub.ui.pages.webview.WebViewPage
 import me.rerere.rikkahub.ui.theme.LocalDarkMode
@@ -145,6 +148,7 @@ private const val TAG = "RouteActivity"
 class RouteActivity : ComponentActivity() {
     private val okHttpClient by inject<OkHttpClient>()
     private val settingsStore by inject<SettingsStore>()
+    private val studyDesktopManager by inject<StudyDesktopManager>()
     private var navStack: MutableList<NavKey>? = null
 
     // Volume key listener registry — last registered handler wins
@@ -258,6 +262,25 @@ class RouteActivity : ComponentActivity() {
         }
     }
 
+    private fun Intent.studyDestinationScreen(): Screen? = when (getStringExtra(EXTRA_STUDY_DESTINATION)) {
+        "chat" -> Screen.Chat(Uuid.random().toString())
+        "history" -> Screen.History
+        "favorite" -> Screen.Favorite
+        "assistant" -> Screen.Assistant
+        "translator" -> Screen.Translator
+        "image_gen" -> Screen.ImageGen
+        "message_search" -> Screen.MessageSearch
+        "extensions" -> Screen.Extensions
+        "quick_messages" -> Screen.QuickMessages
+        "prompts" -> Screen.Prompts
+        "skills" -> Screen.Skills
+        "workspaces" -> Screen.Workspaces
+        "stats" -> Screen.Stats
+        "backup" -> Screen.Backup
+        "setting" -> Screen.Setting
+        else -> null
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // Navigate to the chat screen if a conversation ID is provided
@@ -290,7 +313,7 @@ class RouteActivity : ComponentActivity() {
         }
         val migrationState by DatabaseMigrationTracker.state.collectAsStateWithLifecycle()
 
-        val startScreen = Screen.Chat(
+        val startScreen = intent.studyDestinationScreen() ?: Screen.Chat(
             id = if (readBooleanPreference("create_new_conversation_on_start", true)) {
                 Uuid.random().toString()
             } else {
@@ -336,7 +359,20 @@ class RouteActivity : ComponentActivity() {
                             rememberViewModelStoreNavEntryDecorator(),
                         ),
                         modifier = Modifier.fillMaxSize(),
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = {
+                            if (intent.hasExtra(EXTRA_STUDY_DESTINATION) &&
+                                studyDesktopManager.isGuardActive()
+                            ) {
+                                when {
+                                    backStack.lastOrNull() == Screen.StudyDesktop ->
+                                        studyDesktopManager.openStudyDesktop()
+                                    backStack.size <= 1 -> studyDesktopManager.openStudyDesktop()
+                                    else -> backStack.removeLastOrNull()
+                                }
+                            } else {
+                                backStack.removeLastOrNull()
+                            }
+                        },
                         transitionSpec = {
                             if (backStack.size == 1) fadeIn() togetherWith fadeOut()
                             else {
@@ -363,6 +399,10 @@ class RouteActivity : ComponentActivity() {
                                     files = key.files.map { it.toUri() },
                                     nodeId = key.nodeId?.let { Uuid.parse(it) }
                                 )
+                            }
+
+                            entry<Screen.StudyDesktop> {
+                                StudyDesktopDashboardPage()
                             }
 
                             entry<Screen.ShareHandler> { key ->
@@ -442,6 +482,10 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.SettingPreferences> {
                                 SettingPreferencesPage()
+                            }
+
+                            entry<Screen.SettingStudyDesktop> {
+                                StudyDesktopSetupPage()
                             }
 
                             entry<Screen.SettingPreferencesTheme> {
@@ -617,6 +661,10 @@ class RouteActivity : ComponentActivity() {
             }
         }
     }
+
+    companion object {
+        const val EXTRA_STUDY_DESTINATION = "study_destination"
+    }
 }
 
 sealed interface Screen : NavKey {
@@ -668,6 +716,9 @@ sealed interface Screen : NavKey {
     data object Translator : Screen
 
     @Serializable
+    data object StudyDesktop : Screen
+
+    @Serializable
     data object Setting : Screen
 
     @Serializable
@@ -684,6 +735,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object SettingPreferences : Screen
+
+    @Serializable
+    data object SettingStudyDesktop : Screen
 
     @Serializable
     data object SettingPreferencesTheme : Screen

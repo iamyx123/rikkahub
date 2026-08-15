@@ -12,7 +12,7 @@ import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.UIMessagePart
-import me.rerere.highlight.Highlighter
+import me.rerere.highlight.CodeHighlighter
 import me.rerere.rikkahub.RikkaHubApp
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.paperang.PaperangPrinter
@@ -24,7 +24,7 @@ import me.rerere.rikkahub.ui.components.message.renderMessageBitmap
 internal fun buildPrintTool(
     context: Context,
     printer: PaperangPrinter,
-    highlighter: Highlighter,
+    highlighter: CodeHighlighter,
     settingsStore: SettingsStore,
 ): Tool = Tool(
     name = "print",

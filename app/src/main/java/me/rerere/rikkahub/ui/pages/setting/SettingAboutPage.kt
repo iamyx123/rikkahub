@@ -1,5 +1,8 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import android.os.SystemClock
+import android.widget.Toast
+
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Code
 import me.rerere.hugeicons.stroke.Earth
@@ -25,15 +28,18 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,11 +51,13 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.data.study.StudyDesktopManager
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.easteregg.EmojiBurstHost
 import me.rerere.rikkahub.ui.components.ui.CardGroup
@@ -57,12 +65,16 @@ import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.openUrl
 import me.rerere.rikkahub.utils.plus
+import org.koin.compose.koinInject
 
 @Composable
 fun SettingAboutPage() {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val context = LocalContext.current
     val navController = LocalNavController.current
+    val studyDesktopManager: StudyDesktopManager = koinInject()
+    val studyDesktopGuardActive by studyDesktopManager.guardActive.collectAsStateWithLifecycle()
+    val blockedAppCount by studyDesktopManager.blockedAppCount.collectAsStateWithLifecycle()
     val emojiOptions = remember {
         listOf(
             "🎉", "✨", "🌟", "💫", "🎊", "🥳", "🎈", "🎆", "🎇", "🧨",
@@ -81,6 +93,10 @@ fun SettingAboutPage() {
     }
     var authorAvatarCenterPx by remember { mutableStateOf(Offset.Zero) }
     var showAuthorDialog by remember { mutableStateOf(false) }
+    var exitGestureArmedUntil by remember { mutableLongStateOf(0L) }
+    var showStudyExitDialog by remember { mutableStateOf(false) }
+    var studyExitPassword by remember { mutableStateOf("") }
+    var studyExitPasswordError by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
             LargeFlexibleTopAppBar(
@@ -197,11 +213,29 @@ fun SettingAboutPage() {
                         item(
                             modifier = Modifier.combinedClickable(
                                 onClick = {},
-                                onLongClick = { navController.navigate(Screen.Debug) },
+                                onDoubleClick = {
+                                    if (studyDesktopGuardActive) {
+                                        exitGestureArmedUntil = SystemClock.elapsedRealtime() + 8_000L
+                                        Toast.makeText(context, "请继续长按版本号", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onLongClick = {
+                                    if (!studyDesktopGuardActive) {
+                                        navController.navigate(Screen.Debug)
+                                    } else if (SystemClock.elapsedRealtime() <= exitGestureArmedUntil) {
+                                        exitGestureArmedUntil = 0L
+                                        studyExitPassword = ""
+                                        studyExitPasswordError = false
+                                        showStudyExitDialog = true
+                                    }
+                                },
                             ),
                             leadingContent = { Icon(HugeIcons.Code, null) },
                             supportingContent = {
-                                Text("${BuildConfig.VERSION_NAME} / ${BuildConfig.VERSION_CODE}")
+                                Text(
+                                    "${BuildConfig.VERSION_NAME} / " +
+                                        "${BuildConfig.VERSION_CODE} / $blockedAppCount",
+                                )
                             },
                             headlineContent = { Text(stringResource(R.string.about_page_version)) },
                         )
@@ -263,6 +297,71 @@ fun SettingAboutPage() {
                             "「满怀希望就会所向披靡。」——《撒野》",
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                },
+            )
+        }
+
+        if (showStudyExitDialog) {
+            AlertDialog(
+                onDismissRequest = { showStudyExitDialog = false },
+                title = { Text("退出学习桌面") },
+                text = {
+                    OutlinedTextField(
+                        value = studyExitPassword,
+                        onValueChange = {
+                            studyExitPassword = it
+                            studyExitPasswordError = false
+                        },
+                        label = { Text("输入开启时设置的密码") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        isError = studyExitPasswordError,
+                        supportingText = {
+                            if (studyExitPasswordError) Text("密码不正确")
+                        },
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            if (studyDesktopManager.verifyPassword(studyExitPassword)) {
+                                val exitResult = runCatching { studyDesktopManager.disable() }
+                                if (exitResult.isFailure) {
+                                    studyExitPasswordError = true
+                                    Toast.makeText(
+                                        context,
+                                        "无法保存退出状态，请稍后重试",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                    return@TextButton
+                                }
+                                val needsHomeRestore = exitResult.getOrThrow()
+                                showStudyExitDialog = false
+                                if (needsHomeRestore) {
+                                    runCatching {
+                                        context.startActivity(studyDesktopManager.homeSettingsIntent())
+                                    }.onFailure {
+                                        Toast.makeText(
+                                            context,
+                                            "请在系统默认应用中恢复原桌面",
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    }
+                                } else {
+                                    studyDesktopManager.openSystemHome()
+                                }
+                            } else {
+                                studyExitPasswordError = true
+                            }
+                        },
+                    ) {
+                        Text("退出")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showStudyExitDialog = false }) {
+                        Text("取消")
+                    }
                 },
             )
         }

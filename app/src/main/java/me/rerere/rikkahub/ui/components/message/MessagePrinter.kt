@@ -49,8 +49,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateListOf
 import me.rerere.ai.ui.UIMessage
-import me.rerere.highlight.Highlighter
-import me.rerere.highlight.LocalHighlighter
+import me.rerere.highlight.CodeHighlighter
+import me.rerere.highlight.LocalCodeHighlighter
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.paperang.PaperangPrinter
@@ -76,7 +76,7 @@ private fun renderWidthDp(scale: Float): Float = (BASE_RENDER_WIDTH_DP / scale.c
 @Composable
 fun PrintableMessageContent(
     text: String,
-    highlighter: Highlighter,
+    highlighter: CodeHighlighter,
     settings: Settings,
 ) {
     val navBackStack = remember { mutableStateListOf<NavKey>() }
@@ -93,7 +93,7 @@ fun PrintableMessageContent(
     }
     RikkahubTheme {
         CompositionLocalProvider(
-            LocalHighlighter provides highlighter,
+            LocalCodeHighlighter provides highlighter,
             LocalSettings provides printSettings,
             LocalNavController provides navigator,
             LocalToaster provides toasterState,
@@ -122,7 +122,7 @@ suspend fun renderMessageBitmap(
     scope: CoroutineScope,
     activity: Activity,
     density: Density,
-    highlighter: Highlighter,
+    highlighter: CodeHighlighter,
     settings: Settings,
     text: String,
     scale: Float,
@@ -143,7 +143,7 @@ fun PrintPreview(text: String, scale: Float, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val density = LocalDensity.current
     val settings = LocalSettings.current
-    val highlighter: Highlighter = koinInject()
+    val highlighter: CodeHighlighter = koinInject()
     val scope = rememberCoroutineScope()
     var bmp by remember { mutableStateOf<Bitmap?>(null) }
     var rendering by remember { mutableStateOf(false) }
@@ -181,7 +181,7 @@ fun rememberMessagePrinter(): (UIMessage) -> Unit {
     val settings = LocalSettings.current
     val toaster = LocalToaster.current
     val printer: PaperangPrinter = koinInject()
-    val highlighter: Highlighter = koinInject()
+    val highlighter: CodeHighlighter = koinInject()
     val scope = rememberCoroutineScope()
 
     return remember(settings) {
@@ -226,7 +226,7 @@ fun MessagePrintPreviewDialog(
     val settings = LocalSettings.current
     val toaster = LocalToaster.current
     val printer: PaperangPrinter = koinInject()
-    val highlighter: Highlighter = koinInject()
+    val highlighter: CodeHighlighter = koinInject()
     val settingsStore: SettingsStore = koinInject()
     val scope = rememberCoroutineScope()
     val text = remember(message) { message.toText().trim() }

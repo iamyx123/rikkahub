@@ -1,5 +1,11 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <resources>
+  <string name="study_desktop_home_label">RikkaHub 学习桌面</string>
+  <string name="study_desktop_accessibility_label">学习桌面返回守护</string>
+  <string name="study_desktop_accessibility_description">仅检测前台应用包名、窗口类型和已启用输入法；学习桌面开启时会尝试从未配置应用、系统桌面、最近任务及系统设置拉回，不读取屏幕内容。</string>
+  <string name="study_desktop_notification_channel">学习桌面守护</string>
+  <string name="study_desktop_notification_title">学习桌面正在守护</string>
+  <string name="study_desktop_notification_text">学习桌面前台守护已运行</string>
   <string name="about_page_github">Github</string>
   <string name="about_page_license">License</string>
   <string name="about_page_system">System</string>

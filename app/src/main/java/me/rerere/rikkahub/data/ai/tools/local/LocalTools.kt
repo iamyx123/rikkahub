@@ -2,7 +2,7 @@ package me.rerere.rikkahub.data.ai.tools.local
 
 import android.content.Context
 import me.rerere.ai.core.Tool
-import me.rerere.highlight.Highlighter
+import me.rerere.highlight.CodeHighlighter
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.paperang.PaperangPrinter
@@ -14,7 +14,7 @@ class LocalTools(
     private val ttsManager: TTSManager,
     private val settingsStore: SettingsStore,
     private val printer: PaperangPrinter,
-    private val highlighter: Highlighter,
+    private val highlighter: CodeHighlighter,
 ) {
     val javascriptTool by lazy { buildJavascriptTool() }
 

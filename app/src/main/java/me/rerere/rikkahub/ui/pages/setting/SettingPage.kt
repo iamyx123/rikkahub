@@ -68,6 +68,7 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.isNotConfigured
 import me.rerere.rikkahub.data.files.FilesManager
+import me.rerere.rikkahub.data.study.StudyDesktopManager
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.Select
@@ -90,6 +91,8 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
     val navController = LocalNavController.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val filesManager: FilesManager = koinInject()
+    val studyDesktopManager: StudyDesktopManager = koinInject()
+    val studyDesktopGuardActive by studyDesktopManager.guardActive.collectAsStateWithLifecycle()
 
     if (settings.launchCount > 100 && (settings.launchCount - settings.sponsorAlertDismissedAt) >= 50) {
         AlertDialog(
@@ -188,6 +191,14 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         supportingContent = { Text(stringResource(R.string.setting_page_preferences_desc)) },
                         headlineContent = { Text(stringResource(R.string.setting_page_preferences)) },
                     )
+                    if (!studyDesktopGuardActive) {
+                        item(
+                            onClick = { navController.navigate(Screen.SettingStudyDesktop) },
+                            leadingContent = { Icon(HugeIcons.Book03, null) },
+                            supportingContent = { Text("默认桌面、应用白名单与 Android 11 返回守护") },
+                            headlineContent = { Text("学习桌面") },
+                        )
+                    }
                     item(
                         onClick = { navController.navigate(Screen.Assistant) },
                         leadingContent = { Icon(HugeIcons.LookTop, null) },
