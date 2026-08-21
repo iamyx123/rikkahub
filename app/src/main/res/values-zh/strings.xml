@@ -602,7 +602,7 @@
   <string name="send">发送</string>
   <string name="setting_asr_configure_api_key">API密钥</string>
   <string name="setting_asr_configure_dashscope_api_key_desc">DashScope API密钥</string>
-  <string name="setting_asr_configure_dashscope_vad_desc">服务器 VAD 灵敏度，设为 0 可禁用 VAD</string>
+  <string name="setting_asr_configure_dashscope_vad_desc">服务器VAD检测阈值。推荐值：0.0；范围：-1到1。</string>
   <string name="setting_asr_configure_dashscope_websocket_desc">DashScope 实时 WebSocket 端点</string>
   <string name="setting_asr_configure_language">语言</string>
   <string name="setting_asr_configure_language_code_desc">可选语言代码，例如 zh-CN、en-US、ja-JP</string>
@@ -1292,6 +1292,8 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="assistant_page_context_message_limit_desc">限制发送给模型的最近消息数量。超出限制时，上下文会一次性缩减至约一半，而非每轮丢弃一条消息，从而保持请求前缀稳定，并使提示词缓存在多轮对话中持续生效。</string>
   <string name="assistant_page_context_message_limit_count">上下文消息限制: %d</string>
   <string name="assistant_page_context_message_limit_unlimited">无限上下文消息</string>
+  <string name="assistant_page_context_message_limit_hint">输入 0 表示不限制，其他值不能小于 %d</string>
+  <string name="assistant_page_context_message_limit_too_small">上下文消息限制不能小于 %1$d，已自动重置为 %1$d。</string>
   <string name="assistant_page_context_message_limit_warning">限制上下文会在每次上下文被修剪时使提示词缓存失效。更大的限制修剪频率更低；无限制则从不修剪，并保持缓存完全完好。</string>
   <string name="setting_update_reminder_enabled">更新提醒已启用</string>
   <string name="setting_update_reminder_paused_until">已暂停至 %1$s</string>
@@ -1301,4 +1303,3 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="setting_update_reminder_resume_now">立即恢复</string>
   <string name="reasoning_max">最大</string>
 </resources>
-
