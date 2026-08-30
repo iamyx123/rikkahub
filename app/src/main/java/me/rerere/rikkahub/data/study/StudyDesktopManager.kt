@@ -4,14 +4,22 @@ import android.app.role.RoleManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
+import android.view.inputmethod.InputMethodManager
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -38,9 +46,11 @@ class StudyDesktopManager(context: Context) {
     private val appCatalog = StudyAppCatalog(appContext)
     private val json = Json { ignoreUnknownKeys = true }
     private val systemPolicyBridge = StudyDesktopSystemPolicyBridge(appContext)
+    private val rootScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val _enabled = MutableStateFlow(false)
     private val _guardActive = MutableStateFlow(false)
     private val _mode = MutableStateFlow(StudyDesktopMode.DISABLED)
+    private val _rootAvailable = MutableStateFlow(false)
     private val _pinnedApps = MutableStateFlow(loadPinnedApps())
     private val _blockedAppCount = MutableStateFlow(
         preferences.getLong(KEY_BLOCKED_APP_COUNT, 0L),
@@ -57,13 +67,18 @@ class StudyDesktopManager(context: Context) {
     val enabled = _enabled.asStateFlow()
     val guardActive = _guardActive.asStateFlow()
     val mode = _mode.asStateFlow()
+    val rootAvailable = _rootAvailable.asStateFlow()
     val pinnedApps = _pinnedApps.asStateFlow()
     val blockedAppCount = _blockedAppCount.asStateFlow()
     val examTargetDate = _examTargetDate.asStateFlow()
+    val packageName: String get() = appContext.packageName
 
     init {
         migrateLegacyStateIfNeeded()
         refreshPersistedStateFlows()
+        // Warm the root-probe cache off the main thread so UI and the state machine never probe
+        // synchronously during composition / onCreate.
+        rootScope.launch { _rootAvailable.value = StudyRootBridge.isRootAvailable() }
     }
 
     fun isEnabled(): Boolean =
@@ -146,6 +161,7 @@ class StudyDesktopManager(context: Context) {
                         .putBoolean(KEY_ENABLED, false)
                         .remove(KEY_PASSWORD_CREDENTIAL)
                         .remove(KEY_PENDING_PASSWORD_CREDENTIAL)
+                        .remove(KEY_ROOT_GUARD)
                         .commit()
                     if (committed) setHomeComponentEnabled(false)
                 }
@@ -188,6 +204,7 @@ class StudyDesktopManager(context: Context) {
 
     fun beginEnable(password: String) {
         require(password.length >= MIN_PASSWORD_LENGTH) { "密码至少需要 $MIN_PASSWORD_LENGTH 位" }
+        rememberPassword(password)
         val committed = preferences.edit()
             .putString(KEY_MODE_STATE, StudyDesktopMode.ENABLING.name)
             .putBoolean(KEY_ENABLED, false)
@@ -201,8 +218,11 @@ class StudyDesktopManager(context: Context) {
 
     fun completePendingEnable(): Boolean {
         val credential = preferences.getString(KEY_PENDING_PASSWORD_CREDENTIAL, null) ?: return false
-        if (!isDefaultHome() ||
-            !isAccessibilityServiceEnabled() || !isIgnoringBatteryOptimizations()
+        if (!isDefaultHome()) return false
+        // With a confirmed root guard (recorded by rootSilentEnable) the battery + accessibility
+        // requirements are skipped; otherwise they remain hard requirements of the manual flow.
+        if (!rootGuardActive() &&
+            (!isAccessibilityServiceEnabled() || !isIgnoringBatteryOptimizations())
         ) {
             return false
         }
@@ -257,6 +277,7 @@ class StudyDesktopManager(context: Context) {
                 if (credential != null) putString(KEY_PASSWORD_CREDENTIAL, credential)
             }
             .remove(KEY_PENDING_PASSWORD_CREDENTIAL)
+            .remove(KEY_ROOT_GUARD)
             .commit()
         check(committed) { "无法持久化学习桌面退出事务" }
         appContext.stopService(Intent(appContext, StudyKeepAliveService::class.java))
@@ -286,6 +307,8 @@ class StudyDesktopManager(context: Context) {
             .putBoolean(KEY_ENABLED, false)
             .remove(KEY_PASSWORD_CREDENTIAL)
             .remove(KEY_PENDING_PASSWORD_CREDENTIAL)
+            .remove(KEY_ORIGINAL_HOME)
+            .remove(KEY_ROOT_GUARD)
             .commit()
         if (!committed) return false
         setHomeComponentEnabled(false)
@@ -311,6 +334,208 @@ class StudyDesktopManager(context: Context) {
             .split(':')
             .mapNotNull(ComponentName::unflattenFromString)
             .any { it == expected }
+    }
+
+    // --- Password memory ---
+
+    /** Remembers the exit password (device-scoped obfuscation) so root can re-enter silently. */
+    fun rememberPassword(password: String) {
+        if (password.isBlank()) return
+        preferences.edit()
+            .putString(KEY_REMEMBERED_PASSWORD, StudyPasswordMemory.encode(password, appContext))
+            .apply()
+    }
+
+    /** Returns the last remembered exit password, or null when not set / too short. */
+    fun rememberedPassword(): String? {
+        val raw = preferences.getString(KEY_REMEMBERED_PASSWORD, null) ?: return null
+        return StudyPasswordMemory.decode(raw, appContext)
+            ?.takeIf { it.length >= MIN_PASSWORD_LENGTH }
+    }
+
+    // --- Root-priority guard ---
+
+    /** Whether the root guard was last confirmed working (recorded by rootSilentEnable). */
+    fun rootGuardActive(): Boolean = preferences.getBoolean(KEY_ROOT_GUARD, false)
+
+    /**
+     * Whether an exit should try the root path first. True when the session was started by the
+     * silent root flow, or when root simply looks available. Cheap: the pref check short-circuits
+     * before any probe.
+     */
+    fun prefersRootGuard(): Boolean = rootGuardActive() || StudyRootBridge.isRootAvailable()
+
+    /** Re-probes root availability off the main thread and publishes it to [rootAvailable]. */
+    fun refreshRootAvailability() {
+        rootScope.launch { _rootAvailable.value = StudyRootBridge.isRootAvailable() }
+    }
+
+    /**
+     * Silently enables the study desktop through root: whitelists battery, takes the default HOME
+     * role, then activates the ACTIVE transaction. Uses the last remembered password when [password]
+     * is null. Returns false on any failure so callers can fall back to the manual flow.
+     */
+    suspend fun rootSilentEnable(password: String? = null): Boolean = withContext(Dispatchers.IO) {
+        // The long probe gives Magisk's first-time authorization dialog time to be answered.
+        if (!StudyRootBridge.isRootAvailableAllowGrant()) return@withContext false
+        val effectivePassword = password?.takeIf { it.length >= MIN_PASSWORD_LENGTH }
+            ?: rememberedPassword()
+            ?: return@withContext false
+
+        if (storedMode() == StudyDesktopMode.ACTIVE && isDefaultHome()) {
+            // Already running: make sure the guard is actually up before reporting success.
+            preferences.edit().putBoolean(KEY_ROOT_GUARD, true).commit()
+            startKeepAliveIfPossible()
+            openStudyDesktop()
+            return@withContext true
+        }
+
+        // Capture the current HOME holder before taking over, so a silent exit can restore it.
+        if (preferences.getString(KEY_ORIGINAL_HOME, null).isNullOrBlank()) {
+            val holder = StudyRootBridge.currentRoleHolder()?.takeIf { it != appContext.packageName }
+                ?: otherLauncherPackages().firstOrNull()
+            holder?.let { preferences.edit().putString(KEY_ORIGINAL_HOME, it).commit() }
+        }
+
+        // Battery whitelist via root so no system prompt is needed.
+        StudyRootBridge.whitelistBattery(appContext.packageName)
+
+        // The HOME component must be enabled before the role manager will accept this package.
+        prepareHomeComponent()
+
+        // Record the root guard *before* completePendingEnable, which consults it to waive the
+        // accessibility + battery requirements of the manual flow. Committed synchronously so the
+        // keep-alive service (a separate manager instance) observes it too.
+        preferences.edit().putBoolean(KEY_ROOT_GUARD, true).commit()
+
+        // Take the default HOME role via root and verify through the platform API.
+        val homeSet = StudyRootBridge.setDefaultHome(appContext.packageName)
+        if (!homeSet || !isDefaultHome()) {
+            Log.w(TAG, "Root enable could not take the HOME role")
+            preferences.edit().remove(KEY_ROOT_GUARD).commit()
+            releaseHomeComponentIfInactive()
+            return@withContext false
+        }
+
+        if (storedMode() != StudyDesktopMode.ACTIVE) beginEnable(effectivePassword)
+        val committed = completePendingEnable()
+        if (committed) {
+            startKeepAliveIfPossible()
+        } else {
+            // Roll back the HOME takeover; leaving the role held without an active session would
+            // strand the user on a desktop that has no exit password bound to it.
+            Log.w(TAG, "Root enable took HOME but could not commit the session; rolling back")
+            preferences.edit().remove(KEY_ROOT_GUARD).commit()
+            cancelPendingEnable()
+            val original = preferences.getString(KEY_ORIGINAL_HOME, null)
+                ?.takeIf { it.isNotBlank() && it != appContext.packageName }
+            if (original != null) StudyRootBridge.setDefaultHome(original)
+            else StudyRootBridge.clearDefaultHome(appContext.packageName)
+            refreshStateFlows()
+        }
+        committed
+    }
+
+    /**
+     * Silently exits the study desktop through root: restores the previously captured HOME holder,
+     * then closes the ACTIVE transaction. The exit password must already have been verified by the
+     * caller — this only restores system state.
+     */
+    suspend fun rootSilentDisable(): Boolean = withContext(Dispatchers.IO) {
+        // Exiting is the one operation that must not fail spuriously: allow the grant dialog here
+        // too, in case the cached probe went stale or su was re-authorized since enabling.
+        if (!StudyRootBridge.isRootAvailableAllowGrant()) return@withContext false
+        if (storedMode() != StudyDesktopMode.ACTIVE) return@withContext false
+
+        val original = preferences.getString(KEY_ORIGINAL_HOME, null)
+            ?.takeIf { it.isNotBlank() && it != appContext.packageName }
+            // Nothing captured (study mode was enabled before this ran, or the original holder was
+            // us): fall back to any other installed launcher so the device is not left without HOME.
+            ?: otherLauncherPackages().firstOrNull()
+
+        val restored = if (original != null) {
+            StudyRootBridge.setDefaultHome(original) || StudyRootBridge.clearDefaultHome(appContext.packageName)
+        } else {
+            StudyRootBridge.clearDefaultHome(appContext.packageName)
+        }
+        // The role must actually have left this package — otherwise the user would be locked in with
+        // the transaction already torn down. `isDefaultHome()` is the authoritative platform check.
+        if (!restored || isDefaultHome()) {
+            Log.w(TAG, "Root exit could not hand the HOME role back (restored=$restored)")
+            return@withContext false
+        }
+
+        appContext.stopService(Intent(appContext, StudyKeepAliveService::class.java))
+        val committed = preferences.edit()
+            .putString(KEY_MODE_STATE, StudyDesktopMode.DISABLED.name)
+            .putBoolean(KEY_ENABLED, false)
+            .remove(KEY_PASSWORD_CREDENTIAL)
+            .remove(KEY_PENDING_PASSWORD_CREDENTIAL)
+            .remove(KEY_ORIGINAL_HOME)
+            .remove(KEY_ROOT_GUARD)
+            .commit()
+        if (!committed) return@withContext false
+        setHomeComponentEnabled(false)
+        refreshStateFlows()
+        true
+    }
+
+    /** Enabled input method packages, so the root guard never yanks the IME window. */
+    fun enabledInputMethodPackages(): Set<String> {
+        val manager = appContext.getSystemService(InputMethodManager::class.java) ?: return emptySet()
+        return runCatching {
+            manager.enabledInputMethodList.mapTo(mutableSetOf()) { it.packageName }
+        }.getOrDefault(emptySet())
+    }
+
+    /** Whether [packageName] is one of the apps the user allowed to open from the study desktop. */
+    fun isPinned(packageName: String): Boolean =
+        _pinnedApps.value.any { it.packageName == packageName }
+
+    /**
+     * Other launcher packages on the device. The root guard must not fight these: a launcher on top
+     * means the HOME role changed, which [reconcileForegroundGuard] handles by closing the session.
+     */
+    fun otherLauncherPackages(): Set<String> {
+        val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        return runCatching {
+            appContext.packageManager.queryIntentActivities(homeIntent, 0)
+                .mapNotNull { it.activityInfo?.packageName }
+                .filterTo(mutableSetOf()) { it != appContext.packageName && it != "android" }
+        }.getOrDefault(emptySet())
+    }
+
+    /**
+     * System apps that a permitted study app legitimately brings to the foreground (document
+     * pickers, permission dialogs, installers). Resolved from intents rather than hardcoded so OEM
+     * package names are covered too.
+     */
+    fun essentialSystemPackages(): Set<String> {
+        val intents = listOf(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*"),
+            Intent(Intent.ACTION_CREATE_DOCUMENT).setType("*/*"),
+            Intent(Intent.ACTION_GET_CONTENT).setType("*/*"),
+            Intent(Intent.ACTION_CHOOSER),
+            Intent("android.content.pm.action.REQUEST_PERMISSIONS"),
+            Intent("android.settings.MANAGE_APP_PERMISSIONS"),
+        )
+        val packageManager = appContext.packageManager
+        val result = mutableSetOf<String>()
+        intents.forEach { intent ->
+            runCatching {
+                @Suppress("DEPRECATION")
+                val candidates = packageManager.queryIntentActivities(intent, 0) +
+                    listOfNotNull(packageManager.resolveActivity(intent, 0))
+                candidates.forEach { resolved ->
+                    val info = resolved.activityInfo ?: return@forEach
+                    val flags = info.applicationInfo?.flags ?: 0
+                    val isSystem = flags and
+                        (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+                    if (isSystem) result += info.packageName
+                }
+            }
+        }
+        return result
     }
 
     fun startKeepAliveIfPossible() {
@@ -427,6 +652,8 @@ class StudyDesktopManager(context: Context) {
             .putBoolean(KEY_ENABLED, false)
             .remove(KEY_PASSWORD_CREDENTIAL)
             .remove(KEY_PENDING_PASSWORD_CREDENTIAL)
+            .remove(KEY_ORIGINAL_HOME)
+            .remove(KEY_ROOT_GUARD)
             .commit()
         if (committed) setHomeComponentEnabled(false)
         return committed
@@ -505,11 +732,15 @@ class StudyDesktopManager(context: Context) {
         const val MIN_PASSWORD_LENGTH = 4
         const val EXTRA_OPEN_STUDY_DESKTOP = "open_study_desktop"
 
+        private const val TAG = "StudyDesktopManager"
         private const val PREFERENCES_NAME = "study_desktop"
         private const val KEY_MODE_STATE = "mode_state"
         private const val KEY_ENABLED = "enabled"
         private const val KEY_PASSWORD_CREDENTIAL = "password_credential"
         private const val KEY_PENDING_PASSWORD_CREDENTIAL = "pending_password_credential"
+        private const val KEY_REMEMBERED_PASSWORD = "remembered_password"
+        private const val KEY_ORIGINAL_HOME = "original_home"
+        private const val KEY_ROOT_GUARD = "root_guard"
         private const val KEY_PINNED_APPS = "pinned_apps"
         private const val KEY_BLOCKED_APP_COUNT = "blocked_app_count"
         private const val KEY_EXAM_TARGET_EPOCH_DAY = "exam_target_epoch_day"
@@ -549,4 +780,50 @@ internal object StudyPasswordHasher {
     private fun encode(bytes: ByteArray): String = Base64.getEncoder().withoutPadding().encodeToString(bytes)
 
     private fun decode(value: String): ByteArray = Base64.getDecoder().decode(value)
+}
+
+/**
+ * Device-scoped obfuscation for the remembered exit password. This is not a security boundary — it
+ * only keeps the plaintext out of the prefs file and the first few hex bytes — so a silent root
+ * re-entry can reuse the last password without another prompt. The salted hash remains the sole
+ * verification authority.
+ */
+internal object StudyPasswordMemory {
+    private const val SALT_PREF_KEY = "password_memory_salt"
+
+    fun encode(password: String, context: Context): String {
+        val key = deriveKey(loadSalt(context))
+        val bytes = password.toByteArray(Charsets.UTF_8)
+        val xored = ByteArray(bytes.size) {
+            (bytes[it].toInt() xor key[it % key.size].toInt()).toByte()
+        }
+        return Base64.getEncoder().withoutPadding().encodeToString(xored)
+    }
+
+    fun decode(raw: String, context: Context): String? = runCatching {
+        val key = deriveKey(loadSalt(context))
+        val bytes = Base64.getDecoder().decode(raw)
+        val xored = ByteArray(bytes.size) {
+            (bytes[it].toInt() xor key[it % key.size].toInt()).toByte()
+        }
+        String(xored, Charsets.UTF_8)
+    }.getOrNull()
+
+    private fun loadSalt(context: Context): ByteArray {
+        val prefs = context.getSharedPreferences("study_desktop", Context.MODE_PRIVATE)
+        val stored = prefs.getString(SALT_PREF_KEY, null)
+        if (stored != null) return runCatching { Base64.getDecoder().decode(stored) }
+            .getOrDefault(ByteArray(0))
+        val salt = ByteArray(16).also(SecureRandom()::nextBytes)
+        val encoded = Base64.getEncoder().withoutPadding().encodeToString(salt)
+        if (prefs.edit().putString(SALT_PREF_KEY, encoded).commit()) return salt
+        return salt
+    }
+
+    private fun deriveKey(salt: ByteArray): ByteArray {
+        val digest = MessageDigest.getInstance("SHA-256")
+        digest.update("rikkahub.study.desktop.password.memory".toByteArray(Charsets.UTF_8))
+        digest.update(salt)
+        return digest.digest()
+    }
 }

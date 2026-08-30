@@ -38,8 +38,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,6 +76,7 @@ fun SettingAboutPage() {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val context = LocalContext.current
     val navController = LocalNavController.current
+    val scope = rememberCoroutineScope()
     val studyDesktopManager: StudyDesktopManager = koinInject()
     val studyDesktopGuardActive by studyDesktopManager.guardActive.collectAsStateWithLifecycle()
     val blockedAppCount by studyDesktopManager.blockedAppCount.collectAsStateWithLifecycle()
@@ -312,43 +317,52 @@ fun SettingAboutPage() {
                             studyExitPassword = it
                             studyExitPasswordError = false
                         },
-                        label = { Text("输入开启时设置的密码") },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         isError = studyExitPasswordError,
-                        supportingText = {
-                            if (studyExitPasswordError) Text("密码不正确")
-                        },
                     )
                 },
                 confirmButton = {
                     TextButton(
                         onClick = {
                             if (studyDesktopManager.verifyPassword(studyExitPassword)) {
-                                val exitResult = runCatching { studyDesktopManager.disable() }
-                                if (exitResult.isFailure) {
-                                    studyExitPasswordError = true
-                                    Toast.makeText(
-                                        context,
-                                        "无法保存退出状态，请稍后重试",
-                                        Toast.LENGTH_LONG,
-                                    ).show()
-                                    return@TextButton
-                                }
-                                val needsHomeRestore = exitResult.getOrThrow()
                                 showStudyExitDialog = false
-                                if (needsHomeRestore) {
-                                    runCatching {
-                                        context.startActivity(studyDesktopManager.homeSettingsIntent())
-                                    }.onFailure {
+                                scope.launch {
+                                    val rootDone = withContext(Dispatchers.IO) {
+                                        if (studyDesktopManager.prefersRootGuard()) {
+                                            studyDesktopManager.rootSilentDisable()
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                    if (rootDone) {
+                                        studyDesktopManager.openSystemHome()
+                                        return@launch
+                                    }
+                                    val exitResult = runCatching { studyDesktopManager.disable() }
+                                    if (exitResult.isFailure) {
+                                        studyExitPasswordError = true
                                         Toast.makeText(
                                             context,
-                                            "请在系统默认应用中恢复原桌面",
+                                            "无法保存退出状态，请稍后重试",
                                             Toast.LENGTH_LONG,
                                         ).show()
+                                        return@launch
                                     }
-                                } else {
-                                    studyDesktopManager.openSystemHome()
+                                    val needsHomeRestore = exitResult.getOrThrow()
+                                    if (needsHomeRestore) {
+                                        runCatching {
+                                            context.startActivity(studyDesktopManager.homeSettingsIntent())
+                                        }.onFailure {
+                                            Toast.makeText(
+                                                context,
+                                                "请在系统默认应用中恢复原桌面",
+                                                Toast.LENGTH_LONG,
+                                            ).show()
+                                        }
+                                    } else {
+                                        studyDesktopManager.openSystemHome()
+                                    }
                                 }
                             } else {
                                 studyExitPasswordError = true

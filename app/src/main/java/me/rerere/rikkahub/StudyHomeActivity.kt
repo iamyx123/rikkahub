@@ -41,6 +41,10 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.data.study.StudyDesktopManager
 import me.rerere.rikkahub.data.study.StudyDesktopMode
 import me.rerere.rikkahub.ui.pages.study.StudyDesktopDashboardPage
@@ -130,13 +134,23 @@ class StudyHomeActivity : ComponentActivity() {
 
     private fun beginExit(password: String): Boolean {
         if (!manager.verifyPassword(password)) return false
-        val needsHomeSelection = runCatching { manager.disable() }.getOrElse { return false }
         showExitDialog = false
-        if (needsHomeSelection) {
-            openHomeSelection()
-        } else {
-            manager.openSystemHome()
-            finishAndRemoveTask()
+        lifecycleScope.launch {
+            val rootDone = withContext(Dispatchers.IO) {
+                if (manager.prefersRootGuard()) manager.rootSilentDisable() else false
+            }
+            if (rootDone) {
+                manager.openSystemHome()
+                finishAndRemoveTask()
+            } else {
+                val needsHomeSelection = runCatching { manager.disable() }.getOrElse { false }
+                if (needsHomeSelection) {
+                    openHomeSelection()
+                } else {
+                    manager.openSystemHome()
+                    finishAndRemoveTask()
+                }
+            }
         }
         return true
     }
@@ -273,11 +287,9 @@ private fun StudyExitPasswordDialog(
                     error = false
                 },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("退出密码") },
-                visualTransformation = PasswordVisualTransformation(),
                 singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
                 isError = error,
-                supportingText = { if (error) Text("密码不正确，或退出状态无法保存") },
             )
         },
         confirmButton = {

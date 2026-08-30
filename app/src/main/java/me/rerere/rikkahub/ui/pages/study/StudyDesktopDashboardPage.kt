@@ -269,17 +269,6 @@ private fun StudyDashboardGrid(
         items(utilityShortcuts, key = { "internal:${it.title}" }) { shortcut ->
             InternalShortcutTile(shortcut = shortcut, onClick = { onOpenShortcut(shortcut) })
         }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Text(
-                text = "学习桌面 · HOME 键返回此页",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.52f),
-                textAlign = TextAlign.End,
-            )
-        }
     }
 }
 

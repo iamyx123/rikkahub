@@ -34,7 +34,11 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -67,11 +71,14 @@ fun StudyDesktopSetupPage() {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
     val manager: StudyDesktopManager = koinInject()
     val enabled by manager.enabled.collectAsStateWithLifecycle()
     val pinnedApps by manager.pinnedApps.collectAsStateWithLifecycle()
     var permissionRefresh by remember { mutableIntStateOf(0) }
     var showEnableDialog by remember { mutableStateOf(false) }
+    var showRootEnableDialog by remember { mutableStateOf(false) }
+    var rootBusy by remember { mutableStateOf(false) }
     var showAppPicker by remember { mutableStateOf(false) }
 
     DisposableEffect(lifecycleOwner) {
@@ -81,6 +88,7 @@ fun StudyDesktopSetupPage() {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    LaunchedEffect(permissionRefresh) { manager.refreshRootAvailability() }
 
     if (enabled) {
         LaunchedEffect(Unit) { manager.openStudyDesktop() }
@@ -96,7 +104,32 @@ fun StudyDesktopSetupPage() {
     val defaultHomeGranted = remember(permissionRefresh) { manager.isDefaultHome() }
     val accessibilityGranted = remember(permissionRefresh) { manager.isAccessibilityServiceEnabled() }
     val batteryGranted = remember(permissionRefresh) { manager.isIgnoringBatteryOptimizations() }
-    val readyToEnable = accessibilityGranted && batteryGranted
+    val rootAvailable by manager.rootAvailable.collectAsStateWithLifecycle()
+    val manualReady = accessibilityGranted && batteryGranted
+
+    fun onRootEnableClick() {
+        if (rootBusy) return
+        // No remembered password yet: ask for one first instead of letting rootSilentEnable fail.
+        if (manager.rememberedPassword() == null) {
+            showRootEnableDialog = true
+            return
+        }
+        rootBusy = true
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) { manager.rootSilentEnable() }
+            rootBusy = false
+            permissionRefresh++
+            if (ok) {
+                manager.openStudyDesktop()
+            } else {
+                Toast.makeText(
+                    context,
+                    "Root 静默开启失败，可改用下方「设置退出密码并开启」",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
 
     fun openSettings(intent: Intent) {
         try {
@@ -179,18 +212,36 @@ fun StudyDesktopSetupPage() {
                             },
                         )
                         item(
+                            leadingContent = { Icon(HugeIcons.Settings03, null) },
+                            trailingContent = { SetupStatus(rootAvailable, "可用", "不可用") },
+                            headlineContent = { Text("Root 静默开启") },
+                            supportingContent = { Text("有 root 时无需系统确认弹窗，自动设为默认桌面、加入电池白名单并以 root 轮询接管前台拦截。") },
+                        )
+                        // Shown even when root is available: root can fail on a specific ROM, and
+                        // these two are the fallback path's hard requirements.
+                        item(
                             onClick = { openSettings(manager.accessibilitySettingsIntent()) },
                             leadingContent = { Icon(HugeIcons.View, null) },
                             trailingContent = { SetupStatus(accessibilityGranted) },
                             headlineContent = { Text("无障碍返回守护") },
-                            supportingContent = { Text("仅检测前台应用包名和窗口类型；会尝试从未配置应用、系统桌面、最近任务及系统设置拉回，不读取窗口内容。") },
+                            supportingContent = {
+                                Text(
+                                    if (rootAvailable) "有 root 时不需要；作为 root 失败时的备用方式。"
+                                    else "无 root 时使用；仅检测前台应用包名和窗口类型，不读取窗口内容。",
+                                )
+                            },
                         )
                         item(
                             onClick = { openSettings(manager.batteryOptimizationIntent()) },
                             leadingContent = { Icon(HugeIcons.Zap, null) },
                             trailingContent = { SetupStatus(batteryGranted, "已加入", "去授权") },
                             headlineContent = { Text("电池优化白名单") },
-                            supportingContent = { Text("启用学习桌面的必要步骤，可降低 Android 11 厂商系统终止后台守护的概率。") },
+                            supportingContent = {
+                                Text(
+                                    if (rootAvailable) "Root 静默开启会自动加入，无需手动授权。"
+                                    else "无 root 时的必要步骤，可降低厂商系统终止后台守护的概率。",
+                                )
+                            },
                         )
                     }
                 }
@@ -272,7 +323,7 @@ fun StudyDesktopSetupPage() {
                         item(
                             headlineContent = { Text("隐藏与退出") },
                             supportingContent = {
-                                Text("开启后，本设置入口会隐藏。退出请到 设置 → 关于，双击版本号后在 8 秒内长按并输入密码。")
+                                Text("开启后，本设置入口会隐藏。退出请到 设置 → 关于，双击版本号后在 8 秒内长按并输入密码；有 root 时可直接恢复原桌面。")
                             },
                         )
                     }
@@ -280,16 +331,33 @@ fun StudyDesktopSetupPage() {
 
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (rootAvailable) {
+                            Button(
+                                onClick = { onRootEnableClick() },
+                                enabled = !rootBusy,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(if (rootBusy) "正在开启…" else "Root 静默开启（推荐）")
+                            }
+                            Text(
+                                text = "无需系统弹窗；失败时可继续用下面的普通方式。",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 4.dp),
+                            )
+                        }
+                        // Always available: root can fail on a specific ROM, and the manual flow must
+                        // stay reachable rather than leaving a dead-end root-only button.
                         Button(
                             onClick = { showEnableDialog = true },
-                            enabled = readyToEnable,
+                            enabled = manualReady && !rootBusy,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text("设置退出密码并开启")
                         }
-                        if (!readyToEnable) {
+                        if (!manualReady) {
                             Text(
-                                text = "请先完成无障碍和电池优化白名单；默认桌面会在下一步确认。",
+                                text = "普通方式需先完成无障碍和电池优化白名单；默认桌面会在下一步确认。",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.padding(horizontal = 4.dp),
@@ -327,6 +395,33 @@ fun StudyDesktopSetupPage() {
                         manager.cancelPendingEnable()
                         Toast.makeText(context, "无法准备学习桌面", Toast.LENGTH_SHORT).show()
                     }
+            },
+        )
+    }
+
+    if (showRootEnableDialog) {
+        StudyEnableDialog(
+            appCount = pinnedApps.size,
+            onDismiss = { showRootEnableDialog = false },
+            onEnable = { password ->
+                showRootEnableDialog = false
+                rootBusy = true
+                scope.launch {
+                    val enabled = withContext(Dispatchers.IO) {
+                        manager.rootSilentEnable(password)
+                    }
+                    rootBusy = false
+                    permissionRefresh++
+                    if (enabled) {
+                        manager.openStudyDesktop()
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "Root 静默开启失败，可改用「设置退出密码并开启」",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
             },
         )
     }

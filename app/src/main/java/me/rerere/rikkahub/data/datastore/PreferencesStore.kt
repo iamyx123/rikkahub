@@ -684,10 +684,23 @@ data class MiaomiaoErrorbookConfig(
     val lastGroupId: Int = 0,        // 上次选择的科目
     val lastGroupName: String = "",
     val importMode: MiaomiaoImportMode = MiaomiaoImportMode.IMAGE_ONLY,
-    // 图片优先标签：原图/题目/搜题；导入时按此优先，找不到用第一张
-    val preferImageLabel: String = "题目",
-    // 导入时附带解析文字（默认关，用户希望由 AI 解析）
+    // 图片优先标签：题干/答案/解析/裁剪/自拍；导入时按此优先，找不到用第一张
+    val preferImageLabel: String = "题干",
+    // ── 导入哪些内容（图片按来源分类，文字按小节分类）──
+    // 官方题库清晰图（题干）
+    val includeOfficialQuestionImage: Boolean = true,
+    // 官方答案/解析图
+    val includeOfficialAnswerImage: Boolean = true,
+    // 自己拍的原始照片（含 App 裁剪/增强图）
+    val includePhotoImage: Boolean = true,
+    // 官方题干文字（HTML/LaTeX 转纯文本）
+    val includeQuestionText: Boolean = true,
+    // 官方答案文字
+    val includeAnswerText: Boolean = false,
+    // 官方 AI 逐步解析文字（默认关，解析交给 AI）
     val includeAnalysis: Boolean = false,
+    // 没有官方内容（isQuery=false，云端只有照片）的题：导入时跳过
+    val skipWithoutOfficial: Boolean = false,
 )
 
 // 喵喵机 N2 蓝牙打印机配置

@@ -2,6 +2,7 @@ package me.rerere.rikkahub.ui.pages.miaomiao
 
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -145,7 +146,11 @@ fun MiaomiaoErrorbookPage(
     fun doImport() {
         if (selected.isEmpty() || importing) return
         importing = true
+        val cfg = settings.displaySetting.miaomiaoErrorbook
+        // 开启「只导入有官方内容的题」时，跳过作业帮未识别出题库的题
         val snapshot = selected.values.toList()
+            .filter { (_, item) -> !cfg.skipWithoutOfficial || item.hasOfficial }
+        val skipped = selected.size - snapshot.size
         scope.launch {
             val imageUris = mutableListOf<Uri>()
             val docs = mutableListOf<UIMessagePart.Document>()
@@ -169,13 +174,20 @@ fun MiaomiaoErrorbookPage(
             if (imageUris.isEmpty() && docs.isEmpty()) {
                 importing = false
                 importProgress = ""
-                toaster.show("选中的错题没有可导入内容", type = ToastType.Warning)
+                toaster.show(
+                    if (skipped > 0) "选中的 $skipped 道题都没有官方内容，已全部跳过"
+                    else "选中的错题没有可导入内容",
+                    type = ToastType.Warning,
+                )
                 return@launch
             }
             importBus.send(MiaomiaoImportBus.Payload(imageUris, docs, snapshot.size))
             importing = false
             importProgress = ""
-            toaster.show("已导入 ${snapshot.size} 道错题", type = ToastType.Success)
+            toaster.show(
+                "已导入 ${snapshot.size} 道错题" + if (skipped > 0) "（跳过 $skipped 道无官方内容）" else "",
+                type = ToastType.Success,
+            )
             navController.popBackStack()
         }
     }
@@ -346,7 +358,8 @@ private fun ErrorbookItemCard(
     selected: Boolean,
     onToggle: () -> Unit,
 ) {
-    val thumbUrl = item.images.firstOrNull()?.second
+    // 优先用官方题库清晰图做缩略图，没有再退回自拍图
+    val thumbUrl = (item.images.firstOrNull { it.isOfficial } ?: item.images.firstOrNull())?.url
     val q = item.text.questionText.trim()
     val preview = if (q.isNotBlank()) q
     else listOf(item.degree, item.reason).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "（图片错题）" }
@@ -386,14 +399,31 @@ private fun ErrorbookItemCard(
                 )
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                if (meta.isNotBlank()) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // 官方 = 有题库文字或官方 CDN 清晰图；仅照片 = 作业帮当时没识别出这道题
                     Text(
-                        meta,
+                        if (item.hasOfficial) "官方" else "仅照片",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        color = if (item.hasOfficial) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .border(
+                                1.dp,
+                                if (item.hasOfficial) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.outline,
+                                RoundedCornerShape(4.dp),
+                            )
+                            .padding(horizontal = 4.dp),
                     )
+                    if (meta.isNotBlank()) {
+                        Text(
+                            meta,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 Text(
                     preview,

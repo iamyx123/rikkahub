@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,6 +26,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -68,6 +71,7 @@ import me.rerere.hugeicons.stroke.Printer
 import me.rerere.hugeicons.stroke.TextFont
 import me.rerere.hugeicons.stroke.ViewOff
 import me.rerere.hugeicons.stroke.View
+import me.rerere.rikkahub.data.datastore.MiaomiaoErrorbookConfig
 import me.rerere.rikkahub.data.datastore.MiaomiaoImportMode
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.miaomiao.MiaomiaoService
@@ -136,13 +140,13 @@ fun MiaomiaoSettingPage(
                 phone = ebCfg.phone,
                 password = ebCfg.password,
                 importMode = ebCfg.importMode,
-                includeAnalysis = ebCfg.includeAnalysis,
+                config = ebCfg,
                 lastGroupName = ebCfg.lastGroupName,
                 miaomiaoService = miaomiaoService,
                 onSavePhone = { p -> updateErrorbook { it.copy(phone = p) } },
                 onSavePassword = { p -> updateErrorbook { it.copy(password = p) } },
                 onSelectMode = { m -> updateErrorbook { it.copy(importMode = m) } },
-                onToggleAnalysis = { v -> updateErrorbook { it.copy(includeAnalysis = v) } },
+                onUpdate = { transform -> updateErrorbook(transform) },
                 onSelectGroup = { id, name -> updateErrorbook { it.copy(lastGroupId = id, lastGroupName = name) } },
             )
 
@@ -210,13 +214,13 @@ private fun ErrorbookAccountCard(
     phone: String,
     password: String,
     importMode: MiaomiaoImportMode,
-    includeAnalysis: Boolean,
+    config: MiaomiaoErrorbookConfig,
     lastGroupName: String,
     miaomiaoService: MiaomiaoService,
     onSavePhone: (String) -> Unit,
     onSavePassword: (String) -> Unit,
     onSelectMode: (MiaomiaoImportMode) -> Unit,
-    onToggleAnalysis: (Boolean) -> Unit,
+    onUpdate: ((MiaomiaoErrorbookConfig) -> MiaomiaoErrorbookConfig) -> Unit,
     onSelectGroup: (Int, String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -230,7 +234,7 @@ private fun ErrorbookAccountCard(
 
     SectionCard(title = "作业帮账号", icon = HugeIcons.Link01) {
         Text(
-            "登录作业帮账号后，短按加号里的「喵喵机错题」即可把最新错题（拍照原图 + 搜题清晰图）导入对话框。",
+            "登录作业帮账号后，短按加号里的「喵喵机错题」即可把最新错题导入对话框：既有官方题库的清晰题干/答案图与文字，也有自己拍的原图，导入哪些可在下面勾选。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -328,13 +332,117 @@ private fun ErrorbookAccountCard(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("附带官方解析", style = MaterialTheme.typography.bodyLarge)
-                Text("默认关闭（解析交给 AI）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        // 图片来源：官方题库清晰图 vs 自己拍的照片
+        if (importMode != MiaomiaoImportMode.TEXT_ONLY) {
+            HorizontalDivider()
+            Text("导入哪些图片", style = MaterialTheme.typography.labelLarge)
+            CheckRow(
+                title = "官方题干图",
+                subtitle = "作业帮题库的清晰题目图（img.cdnjtzy.com）",
+                checked = config.includeOfficialQuestionImage,
+                onCheckedChange = { v -> onUpdate { it.copy(includeOfficialQuestionImage = v) } },
+            )
+            CheckRow(
+                title = "官方答案/解析图",
+                subtitle = "题库的答案与解析清晰图",
+                checked = config.includeOfficialAnswerImage,
+                onCheckedChange = { v -> onUpdate { it.copy(includeOfficialAnswerImage = v) } },
+            )
+            CheckRow(
+                title = "自己拍的原图",
+                subtitle = "拍照原图与 App 裁剪增强图",
+                checked = config.includePhotoImage,
+                onCheckedChange = { v -> onUpdate { it.copy(includePhotoImage = v) } },
+            )
+            Text(
+                "某题没有勾选的类别时，会退回导入该题的所有图片，避免什么都导不进来；三项都不勾则不导入图片。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            // 优先图片：多张图时排在最前（喂给模型的第一张）
+            Text("优先展示/打印", style = MaterialTheme.typography.labelLarge)
+            val prefer = ZybClient.normalizeLabel(config.preferImageLabel)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    ZybClient.LABEL_QUESTION,
+                    ZybClient.LABEL_ANSWER,
+                    ZybClient.LABEL_ANALYSIS,
+                    ZybClient.LABEL_PHOTO,
+                ).forEach { label ->
+                    EinkChip(label = label, selected = prefer == label) {
+                        onUpdate { it.copy(preferImageLabel = label) }
+                    }
+                }
             }
-            Switch(checked = includeAnalysis, onCheckedChange = onToggleAnalysis)
         }
+
+        // 文字小节：题干 / 答案 / AI 逐步解析
+        if (importMode != MiaomiaoImportMode.IMAGE_ONLY) {
+            HorizontalDivider()
+            Text("导入哪些文字", style = MaterialTheme.typography.labelLarge)
+            CheckRow(
+                title = "官方题干文字",
+                subtitle = "含 LaTeX 公式，最适合喂给 AI",
+                checked = config.includeQuestionText,
+                onCheckedChange = { v -> onUpdate { it.copy(includeQuestionText = v) } },
+            )
+            CheckRow(
+                title = "官方答案文字",
+                subtitle = "题库给出的参考答案",
+                checked = config.includeAnswerText,
+                onCheckedChange = { v -> onUpdate { it.copy(includeAnswerText = v) } },
+            )
+            CheckRow(
+                title = "官方 AI 逐步解析",
+                subtitle = "【答案】/【总体思路】/【步骤N】；默认关闭（解析交给 AI）",
+                checked = config.includeAnalysis,
+                onCheckedChange = { v -> onUpdate { it.copy(includeAnalysis = v) } },
+            )
+        }
+
+        HorizontalDivider()
+
+        CheckRow(
+            title = "只导入有官方内容的题",
+            subtitle = "作业帮未识别出题库的题（云端只有照片）自动跳过",
+            checked = config.skipWithoutOfficial,
+            onCheckedChange = { v -> onUpdate { it.copy(skipWithoutOfficial = v) } },
+        )
+    }
+}
+
+/** 勾选行：标题 + 说明 + 复选框。 */
+@Composable
+private fun CheckRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = CheckboxDefaults.colors(
+                checkedColor = MaterialTheme.colorScheme.onSurface,
+                checkmarkColor = MaterialTheme.colorScheme.surface,
+            ),
+        )
     }
 }
 

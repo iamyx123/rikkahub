@@ -7,10 +7,14 @@ import android.view.Window
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
@@ -43,13 +47,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -89,6 +96,7 @@ import me.rerere.rikkahub.data.screenshot.RemoteScreenshotClient
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.study.StudyDesktopManager
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.ui.components.ai.ChatInput
 import me.rerere.rikkahub.ui.components.ai.FilesPicker
@@ -326,11 +334,59 @@ private fun ChatPageContent(
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
     val workspaceRepository: WorkspaceRepository = koinInject()
+    val studyManager: StudyDesktopManager = koinInject()
     var previewMode by rememberSaveable { mutableStateOf(false) }
     val hazeState = rememberHazeState()
     val assistant = setting.getCurrentAssistant()
     var showFilesSheet by remember { mutableStateOf(false) }
+    var showStudyRootPasswordDialog by remember { mutableStateOf(false) }
     val bookmarks by vm.bookmarks.collectAsStateWithLifecycle()
+
+    // 顶部「新建对话」旁的按钮：单击切换预览，长按通过 Root 静默开启学习桌面。
+    fun triggerStudyRootEnable() {
+        // 还没有记住过退出密码时先让用户设一个，否则 rootSilentEnable 必然失败。
+        if (studyManager.rememberedPassword() == null) {
+            showStudyRootPasswordDialog = true
+            return
+        }
+        scope.launch {
+            toaster.show("正在开启学习桌面…", type = ToastType.Info)
+            val enabled = withContext(Dispatchers.IO) { studyManager.rootSilentEnable() }
+            studyManager.refreshRootAvailability()
+            if (enabled) {
+                toaster.dismissAll()
+                toaster.show("学习桌面已开启", type = ToastType.Success)
+            } else {
+                // 静默开启未成功（无 root 或系统未接受）时回退到设置页，保证流程可用。
+                toaster.dismissAll()
+                toaster.show("未完成静默开启，已打开设置页", type = ToastType.Warning)
+                navController.navigate(Screen.SettingStudyDesktop)
+            }
+        }
+    }
+
+    fun onStudyRootPasswordConfirm(password: String) {
+        if (password.length < StudyDesktopManager.MIN_PASSWORD_LENGTH) {
+            toaster.show(
+                "密码至少 ${StudyDesktopManager.MIN_PASSWORD_LENGTH} 位",
+                type = ToastType.Warning,
+            )
+            return
+        }
+        showStudyRootPasswordDialog = false
+        scope.launch {
+            toaster.show("正在开启学习桌面…", type = ToastType.Info)
+            val enabled = withContext(Dispatchers.IO) { studyManager.rootSilentEnable(password) }
+            studyManager.refreshRootAvailability()
+            toaster.dismissAll()
+            if (enabled) {
+                toaster.show("学习桌面已开启", type = ToastType.Success)
+            } else {
+                toaster.show("静默开启未完成，已打开设置页", type = ToastType.Warning)
+                navController.navigate(Screen.SettingStudyDesktop)
+            }
+        }
+    }
 
     // 预览模式点击搜索结果跳转：先切回正常列表，待列表完成布局后，按匹配词在该条消息中的
     // 字符占比估算纵向偏移，滚动定位到匹配处附近（而非只停在消息开头）。
@@ -391,6 +447,7 @@ private fun ChatPageContent(
                     onClickMenu = {
                         previewMode = !previewMode
                     },
+                    onRootSilentEnable = ::triggerStudyRootEnable,
                     onUpdateTitle = {
                         vm.updateTitle(it)
                     }
@@ -600,6 +657,30 @@ private fun ChatPageContent(
                 onDismiss = { showFilesSheet = false },
             )
         }
+    }
+
+    if (showStudyRootPasswordDialog) {
+        var password by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showStudyRootPasswordDialog = false },
+            title = { Text("设置退出密码") },
+            text = {
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("退出密码（至少 4 位）") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { onStudyRootPasswordConfirm(password) }) { Text("开启") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showStudyRootPasswordDialog = false }) { Text("取消") }
+            },
+        )
     }
 }
 
@@ -1091,6 +1172,7 @@ private fun TopBar(
     previewMode: Boolean,
     onClickMenu: () -> Unit,
     onNewChat: () -> Unit,
+    onRootSilentEnable: () -> Unit,
     onUpdateTitle: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -1149,12 +1231,22 @@ private fun TopBar(
             }
         },
         actions = {
-            IconButton(
-                onClick = {
-                    onClickMenu()
-                }
+            // 新建对话旁的按钮：单击切换预览，长按通过 Root 静默开启学习桌面
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .combinedClickable(
+                        onClick = { onClickMenu() },
+                        onLongClick = { onRootSilentEnable() },
+                    ),
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(if (previewMode) HugeIcons.Cancel01 else HugeIcons.LeftToRightListBullet, "Chat Options")
+                Icon(
+                    imageVector = if (previewMode) HugeIcons.Cancel01 else HugeIcons.LeftToRightListBullet,
+                    contentDescription = "Chat Options",
+                    modifier = Modifier.size(24.dp),
+                )
             }
 
             IconButton(

@@ -317,6 +317,8 @@ dependencies {
 
     // tests
     testImplementation(libs.junit)
+    // Android 单测里 org.json 是抛异常的桩，需要真实实现
+    testImplementation(libs.json)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
