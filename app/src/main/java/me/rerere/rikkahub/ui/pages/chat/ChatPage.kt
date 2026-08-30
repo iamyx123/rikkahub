@@ -74,10 +74,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.common.android.appTempFolder
 import me.rerere.hugeicons.HugeIcons
@@ -127,6 +129,7 @@ import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
 import java.io.File
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
 
 @Composable
@@ -508,6 +511,7 @@ private fun ChatPageContent(
                             vm.handleMessageSend(inputState.getContents())
                             if (setting.displaySetting.scrollToBottomOnSend) {
                                 scope.launch {
+                                    delay(100.milliseconds)
                                     chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
                                 }
                             }
@@ -524,6 +528,7 @@ private fun ChatPageContent(
                             vm.handleMessageSend(content = inputState.getContents(), answer = false)
                             if (setting.displaySetting.scrollToBottomOnSend) {
                                 scope.launch {
+                                    delay(100.milliseconds)
                                     chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
                                 }
                             }

@@ -23,10 +23,12 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.putJsonArray
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.oauth.CustomTabsOAuthAuthorizationLauncher
+import me.rerere.oauth.OAuthHttpClient
+import me.rerere.oauth.OAuthLoopbackCallbackServer
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
-import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.files.saveUploadFromBytes
 import me.rerere.rikkahub.utils.JsonInstant
@@ -45,7 +47,6 @@ class McpManager(
     private val settingsStore: SettingsStore,
     private val appScope: AppScope,
     private val filesManager: FilesManager,
-    appEventBus: AppEventBus,
 ) {
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -69,11 +70,17 @@ class McpManager(
     }
 
     private val statusStore = McpStatusStore()
+    private val oauthCallbackServer = OAuthLoopbackCallbackServer(
+        port = MCP_OAUTH_CALLBACK_PORT,
+        callbackPath = MCP_OAUTH_CALLBACK_PATH,
+    )
     private val oauthCoordinator = McpOAuthCoordinator(
         settingsStore = settingsStore,
         appScope = appScope,
-        appEventBus = appEventBus,
-        oauthClient = McpOAuthClient(okHttpClient),
+        oauthClient = OAuthHttpClient(okHttpClient),
+        discoveryClient = McpOAuthDiscoveryClient(okHttpClient),
+        callbackServer = oauthCallbackServer,
+        authorizationLauncher = CustomTabsOAuthAuthorizationLauncher,
         updateStatus = statusStore::update,
     )
     private val sessionRegistry = McpSessionRegistry(

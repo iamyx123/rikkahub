@@ -103,7 +103,7 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.ArrowUp02
 import me.rerere.hugeicons.stroke.Cancel01
-import me.rerere.hugeicons.stroke.FullScreen
+import me.rerere.hugeicons.stroke.Fullscreen
 import me.rerere.hugeicons.stroke.Zap
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
@@ -171,6 +171,11 @@ fun ChatInput(
     } else {
         MaterialTheme.shapes.largeIncreased
     }
+    val modelListState = rememberModelListState(
+        modelId = assistant.chatModelId ?: settings.chatModelId,
+        providers = settings.providers,
+        type = ModelType.CHAT,
+    )
 
     fun sendMessage() {
         focusManager.clearFocus(force = true)
@@ -263,7 +268,7 @@ fun ChatInput(
                     TextInputRow(
                         state = state,
                         completionProviders = completionProviders,
-                        onSendMessage = { sendMessage() }
+                        onSendMessage = { sendMessage() },
                     )
 
                     Row(
@@ -280,13 +285,8 @@ fun ChatInput(
                             horizontalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             // Model Picker
-                            ModelSelector(
-                                modelId = assistant.chatModelId ?: settings.chatModelId,
-                                providers = settings.providers,
-                                onSelect = {
-                                    onUpdateChatModel(it)
-                                },
-                                type = ModelType.CHAT,
+                            ModelSelectorButton(
+                                state = modelListState,
                                 onlyIcon = true,
                                 modifier = Modifier,
                             )
@@ -368,58 +368,77 @@ fun ChatInput(
                             enter = fadeIn() + scaleIn(),
                             exit = fadeOut() + scaleOut(),
                         ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(30.dp)
-                                    .testTag("chat_send_button")
-                                    .clip(CircleShape)
-                                    .combinedClickable(
-                                        enabled = loading || !state.isEmpty(),
-                                        onClick = {
-                                            sendMessage()
-                                        }, onLongClick = {
-                                            sendMessageWithoutAnswer()
-                                        }
-                                    )
-                            ) {
-                                val containerColor = when {
-                                    loading -> MaterialTheme.colorScheme.errorContainer
-                                    state.isEmpty() -> MaterialTheme.colorScheme.surfaceContainerHigh
-                                    else -> MaterialTheme.colorScheme.primary
-                                }
-                                val contentColor = when {
-                                    loading -> MaterialTheme.colorScheme.onErrorContainer
-                                    state.isEmpty() -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                    else -> MaterialTheme.colorScheme.onPrimary
-                                }
-                                Surface(
-                                    modifier = Modifier.fillMaxSize(),
-                                    shape = CircleShape,
-                                    color = containerColor,
-                                    content = {})
-                                if (loading) {
-                                    KeepScreenOn()
-                                    Icon(
-                                        imageVector = HugeIcons.Cancel01,
-                                        contentDescription = stringResource(R.string.stop),
-                                        tint = contentColor,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = HugeIcons.ArrowUp02,
-                                        contentDescription = stringResource(R.string.send),
-                                        tint = contentColor,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
+                            SendButton(
+                                loading = loading,
+                                empty = state.isEmpty(),
+                                onClick = { sendMessage() },
+                                onLongClick = { sendMessageWithoutAnswer() },
+                            )
                         }
                     }
                 }
             }
 
+        }
+    }
+
+    ModelListSheet(
+        state = modelListState,
+        onSelect = onUpdateChatModel,
+    )
+}
+
+@Composable
+private fun SendButton(
+    loading: Boolean,
+    empty: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val containerColor = when {
+        loading -> MaterialTheme.colorScheme.errorContainer
+        empty -> MaterialTheme.colorScheme.surfaceContainerHigh
+        else -> MaterialTheme.colorScheme.primary
+    }
+    val contentColor = when {
+        loading -> MaterialTheme.colorScheme.onErrorContainer
+        empty -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+        else -> MaterialTheme.colorScheme.onPrimary
+    }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(30.dp)
+            .testTag("chat_send_button")
+            .clip(CircleShape)
+            .combinedClickable(
+                enabled = loading || !empty,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            )
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            shape = CircleShape,
+            color = containerColor,
+            content = {},
+        )
+        if (loading) {
+            KeepScreenOn()
+            Icon(
+                imageVector = HugeIcons.Cancel01,
+                contentDescription = stringResource(R.string.stop),
+                tint = contentColor,
+                modifier = Modifier.size(18.dp)
+            )
+        } else {
+            Icon(
+                imageVector = HugeIcons.ArrowUp02,
+                contentDescription = stringResource(R.string.send),
+                tint = contentColor,
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }
@@ -628,7 +647,7 @@ private fun TextInputRow(
                     }
                     if (isFocused) {
                         IconButton(onClick = { isFullScreen = !isFullScreen }) {
-                            Icon(HugeIcons.FullScreen, null)
+                            Icon(HugeIcons.Fullscreen, null)
                         }
                     }
                 }
@@ -670,7 +689,7 @@ private fun TextInputRow(
                             onClick = {
                                 isFullScreen = !isFullScreen
                             }) {
-                            Icon(HugeIcons.FullScreen, null)
+                            Icon(HugeIcons.Fullscreen, null)
                         }
                     }
                 },
