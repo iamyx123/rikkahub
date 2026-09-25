@@ -27,7 +27,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import me.rerere.common.android.appTempFolder
-import com.whl.quickjs.android.QuickJSLoader
 import me.rerere.rikkahub.di.appModule
 import me.rerere.rikkahub.di.dataSourceModule
 import me.rerere.rikkahub.di.repositoryModule
@@ -108,9 +107,6 @@ class RikkaHubApp : Application() {
         // install crash handler
         CrashHandler.install(this)
 
-        // Init QuickJS native library
-        QuickJSLoader.init()
-
         // delete temp files
         deleteTempFiles()
 
@@ -141,10 +137,8 @@ class RikkaHubApp : Application() {
     private fun incrementLaunchCount() {
         get<AppScope>().launch {
             runCatching {
-                val store = get<SettingsStore>()
-                val current = store.settingsFlowRaw.first()
-                store.update(current.copy(launchCount = current.launchCount + 1))
-                Log.i(TAG, "incrementLaunchCount: ${store.settingsFlowRaw.first().launchCount}")
+                val count = get<SettingsStore>().incrementLaunchCount()
+                Log.i(TAG, "incrementLaunchCount: $count")
             }.onFailure {
                 Log.e(TAG, "incrementLaunchCount failed", it)
             }

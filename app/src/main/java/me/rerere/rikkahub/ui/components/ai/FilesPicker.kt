@@ -67,6 +67,7 @@ import org.koin.compose.koinInject
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.BookEdit
+import me.rerere.hugeicons.stroke.Voice
 import me.rerere.hugeicons.stroke.Camera01
 import me.rerere.hugeicons.stroke.Codesandbox
 import me.rerere.hugeicons.stroke.ComputerTerminal01
@@ -125,6 +126,7 @@ internal fun FilesPicker(
     onConfigurePhotoImport: () -> Unit = {},
     onImportErrorbook: () -> Unit = {},
     onOpenErrorbook: () -> Unit = {},
+    onStartVoiceMode: (() -> Unit)? = null,
 ) {
     val settings = LocalSettings.current
     val provider = settings.getCurrentChatModel()?.findProvider(providers = settings.providers)
@@ -160,6 +162,14 @@ internal fun FilesPicker(
 
             // 喵喵机错题：短按导入作业帮最新错题，长按打开错题浏览页（按科目多选、翻查历史、一键导入）
             MiaomiaoErrorbookButton(onClick = onImportErrorbook, onLongClick = onOpenErrorbook)
+
+            onStartVoiceMode?.let { start ->
+                BigIconTextButton(
+                    icon = { Icon(HugeIcons.Voice, contentDescription = null) },
+                    text = { Text(stringResource(R.string.chat_page_voice_title)) },
+                    onClick = start,
+                )
+            }
         }
 
         HorizontalDivider(

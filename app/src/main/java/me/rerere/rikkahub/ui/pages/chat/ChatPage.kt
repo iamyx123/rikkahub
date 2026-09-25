@@ -52,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
@@ -93,6 +94,7 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
+import me.rerere.rikkahub.data.datastore.getSelectedASRProvider
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.screenshot.RemoteScreenshotClient
 import me.rerere.rikkahub.data.model.Assistant
@@ -153,6 +155,7 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val softwareKeyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
 
     // Handle back press when drawer is open
     BackHandler(enabled = drawerState.isOpen) {
@@ -161,9 +164,10 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
         }
     }
 
-    // Hide keyboard when drawer is open
+    // Clear input focus so popup transitions cannot reopen the keyboard.
     LaunchedEffect(drawerState.isOpen) {
         if (drawerState.isOpen) {
+            focusManager.clearFocus(force = true)
             softwareKeyboardController?.hide()
         }
     }
@@ -179,6 +183,8 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
             drawerState.close()
         }
     }
+
+    val startVoiceMode = rememberVoiceModeStarter(vm, setting)
 
     val inputState = vm.inputState
 
@@ -259,6 +265,7 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                 }
             ) {
                 ChatPageContent(
+                    onStartVoiceMode = startVoiceMode,
                     inputState = inputState,
                     loadingJob = loadingJob,
                     processingStatus = processingStatus,
@@ -292,6 +299,7 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                 }
             ) {
                 ChatPageContent(
+                    onStartVoiceMode = startVoiceMode,
                     inputState = inputState,
                     loadingJob = loadingJob,
                     processingStatus = processingStatus,
@@ -318,6 +326,7 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
 
 @Composable
 private fun ChatPageContent(
+    onStartVoiceMode: () -> Unit,
     inputState: ChatInputState,
     loadingJob: Job?,
     processingStatus: String? = null,
@@ -457,8 +466,18 @@ private fun ChatPageContent(
                 )
             },
             bottomBar = {
+                val messageQueue by vm.messageQueue.collectAsStateWithLifecycle()
+                val voiceState by vm.voiceSession.state.collectAsStateWithLifecycle()
                 ChatInput(
+                    onStartVoiceMode = onStartVoiceMode,
+                    voiceState = voiceState,
+                    onStopVoiceMode = vm.voiceSession::stop,
                     state = inputState,
+                    messageQueue = messageQueue,
+                    onRemoveQueuedMessage = vm::removeQueuedMessage,
+                    onBeginEditQueuedMessage = vm::beginEditQueuedMessage,
+                    onFinishEditQueuedMessage = vm::finishEditQueuedMessage,
+                    onResumeMessageQueue = vm::resumeMessageQueue,
                     loading = loadingJob != null,
                     settings = setting,
                     hazeState = hazeState,
@@ -659,6 +678,7 @@ private fun ChatPageContent(
                 conversation = conversation,
                 assistant = assistant,
                 vm = vm,
+                onStartVoiceMode = onStartVoiceMode,
                 onDismiss = { showFilesSheet = false },
             )
         }
@@ -725,6 +745,7 @@ private fun ChatFilesPickerSheet(
     conversation: Conversation,
     assistant: Assistant,
     vm: ChatVM,
+    onStartVoiceMode: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -735,6 +756,9 @@ private fun ChatFilesPickerSheet(
     val navController = LocalNavController.current
     val scope = rememberCoroutineScope()
     var showScreenshotConfig by remember { mutableStateOf(false) }
+    val voiceState by vm.voiceSession.state.collectAsStateWithLifecycle()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var showInjectionSheet by remember { mutableStateOf(false) }
     var showCompressDialog by remember { mutableStateOf(false) }
 
@@ -1098,6 +1122,17 @@ private fun ChatFilesPickerSheet(
             onConfigurePhotoImport = { showPhotoImportConfig = true },
             onImportErrorbook = onImportErrorbook,
             onOpenErrorbook = onOpenErrorbook,
+            onStartVoiceMode = if (
+                setting.getSelectedASRProvider()?.supportsServerVadVoiceMode == true &&
+                voiceState.phase == VoicePhase.Off
+            ) {
+                {
+                    dismissAll()
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
+                    onStartVoiceMode()
+                }
+            } else null,
         )
     }
 
