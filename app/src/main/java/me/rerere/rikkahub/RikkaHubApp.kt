@@ -19,6 +19,7 @@ import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import me.rerere.rikkahub.data.files.FileFolders
+import me.rerere.rikkahub.data.files.SkillManager
 import java.io.File
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -125,6 +126,9 @@ class RikkaHubApp : Application() {
         // 提前创建喵喵机打印机管理器：注册前台/蓝牙监听并尝试自动连接上次记忆的设备
         runCatching { get<me.rerere.rikkahub.data.paperang.PaperangPrinter>() }
 
+        // Extract builtin skills from assets after install/update
+        extractBuiltinSkills()
+
         // Start WebServer if enabled in settings
         startWebServerIfEnabled()
 
@@ -182,6 +186,12 @@ class RikkaHubApp : Application() {
                     dir.deleteRecursively()
                 }
             }
+        }
+    }
+
+    private fun extractBuiltinSkills() {
+        get<AppScope>().launch(Dispatchers.IO) {
+            get<SkillManager>().ensureBuiltinSkillsExtracted()
         }
     }
 
