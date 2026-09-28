@@ -95,6 +95,7 @@ class StudyDesktopAccessibilityService : AccessibilityService() {
     @Suppress("DEPRECATION")
     private fun resolveEssentialSystemActivities(): Set<ComponentName> {
         val intents = listOf(
+            Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE),
             Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*"),
             Intent(Intent.ACTION_CREATE_DOCUMENT).setType("*/*"),
             Intent(Intent.ACTION_GET_CONTENT).setType("*/*"),

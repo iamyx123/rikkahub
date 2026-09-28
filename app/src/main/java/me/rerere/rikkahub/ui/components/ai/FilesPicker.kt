@@ -51,6 +51,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
@@ -91,14 +93,10 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.ui.components.ui.ExtensionSelector
-import me.rerere.rikkahub.ui.components.ui.permission.PermissionCamera
-import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
-import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.workspace.WorkspaceShellStatus
-import org.koin.compose.koinInject
 import kotlin.uuid.Uuid
 
 @Composable
@@ -115,7 +113,8 @@ internal fun FilesPicker(
     showCompressDialog: Boolean,
     onShowCompressDialogChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
-    onTakePic: () -> Unit,
+    onCaptureScreenshot: () -> Unit,
+    onLaunchCamera: () -> Unit,
     onConfigureScreenshot: () -> Unit,
     onPickImage: () -> Unit,
     onPickVideo: () -> Unit,
@@ -127,6 +126,7 @@ internal fun FilesPicker(
     onImportErrorbook: () -> Unit = {},
     onOpenErrorbook: () -> Unit = {},
     onStartVoiceMode: (() -> Unit)? = null,
+    captureEnabled: Boolean = true,
 ) {
     val settings = LocalSettings.current
     val provider = settings.getCurrentChatModel()?.findProvider(providers = settings.providers)
@@ -144,7 +144,12 @@ internal fun FilesPicker(
             horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.Start),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            TakePicButton(onLaunchCamera = onTakePic, onLongClick = onConfigureScreenshot)
+            TakePicButton(
+                onCaptureScreenshot = onCaptureScreenshot,
+                onLaunchCamera = onLaunchCamera,
+                onLongClick = onConfigureScreenshot,
+                enabled = captureEnabled,
+            )
 
             ImagePickButton(onClick = onPickImage)
 
@@ -499,17 +504,33 @@ private fun PhotoImportButton(onClick: () -> Unit = {}, onLongClick: (() -> Unit
 }
 
 @Composable
-fun TakePicButton(onLaunchCamera: () -> Unit = {}, onLongClick: (() -> Unit)? = null) {
+fun TakePicButton(
+    onCaptureScreenshot: () -> Unit = {},
+    onLaunchCamera: () -> Unit = {},
+    onLongClick: (() -> Unit)? = null,
+    enabled: Boolean = true,
+) {
     BigIconTextButton(
+        modifier = Modifier.semantics {
+            customActions = if (enabled) listOf(
+                CustomAccessibilityAction("调用相机拍照") { onLaunchCamera(); true }
+            ) else emptyList()
+        },
         icon = {
             Icon(HugeIcons.Camera01, null)
         },
         text = {
-            // 墨水屏拍照按钮：短按截取电脑屏幕，长按配置服务端
-            Text(stringResource(R.string.take_picture))
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("截图 / 拍照")
+                Text("单击截图 · 双击拍照", style = MaterialTheme.typography.labelSmall)
+            }
         },
+        enabled = enabled,
+        onClickLabel = "截取电脑屏幕",
+        onLongClickLabel = "配置电脑截图服务",
         onLongClick = onLongClick,
-        onClick = onLaunchCamera,
+        onDoubleClick = onLaunchCamera,
+        onClick = onCaptureScreenshot,
     )
 }
 
@@ -570,6 +591,10 @@ private fun BigIconTextButton(
     icon: @Composable () -> Unit,
     text: @Composable () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    onDoubleClick: (() -> Unit)? = null,
+    enabled: Boolean = true,
+    onClickLabel: String? = null,
+    onLongClickLabel: String? = null,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -578,9 +603,13 @@ private fun BigIconTextButton(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .combinedClickable(
+                enabled = enabled,
                 interactionSource = interactionSource,
                 indication = LocalIndication.current,
                 onClick = onClick,
+                onClickLabel = onClickLabel,
+                onDoubleClick = onDoubleClick,
+                onLongClickLabel = onLongClickLabel,
                 onLongClick = onLongClick?.let {
                     {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -637,7 +666,7 @@ fun ScreenshotServerConfigDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "在电脑上运行 Screenshotter，点「自动扫描」即可发现同一局域网内的服务（无需手动输入 IP），也可手动填写其显示的 IP 与端口（默认 5000）。短按拍照按钮即可截取电脑所有屏幕。",
+                    text = "在电脑上运行 Screenshotter，点「自动扫描」即可发现同一局域网内的服务（无需手动输入 IP），也可手动填写其显示的 IP 与端口（默认 5000）。单击「截图 / 拍照」截取电脑所有屏幕，双击调用设备相机拍照，长按配置截图服务。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

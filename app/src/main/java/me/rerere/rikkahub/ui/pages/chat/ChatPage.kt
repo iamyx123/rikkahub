@@ -62,7 +62,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -108,7 +107,7 @@ import me.rerere.rikkahub.ui.components.ai.ScreenshotServerConfigDialog
 import me.rerere.rikkahub.ui.components.ai.SearchMode
 import me.rerere.rikkahub.ui.components.ai.completion.WorkspaceCompletionProvider
 import me.rerere.rikkahub.ui.components.ai.useCropLauncher
-import me.rerere.rikkahub.ui.components.ui.permission.PermissionCamera
+import me.rerere.rikkahub.ui.components.ai.rememberCameraCaptureAction
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionReadMediaImages
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
@@ -350,7 +349,7 @@ private fun ChatPageContent(
     var previewMode by rememberSaveable { mutableStateOf(false) }
     val hazeState = rememberHazeState()
     val assistant = setting.getCurrentAssistant()
-    var showFilesSheet by remember { mutableStateOf(false) }
+    var showFilesSheet by rememberSaveable { mutableStateOf(false) }
     var showStudyRootPasswordDialog by remember { mutableStateOf(false) }
     val bookmarks by vm.bookmarks.collectAsStateWithLifecycle()
 
@@ -768,59 +767,25 @@ private fun ChatFilesPickerSheet(
         onDismiss()
     }
 
-    val cameraPermission = rememberPermissionState(PermissionCamera)
-    PermissionManager(permissionState = cameraPermission)
-
     // 读取相册（导入最新一组照片）
     val mediaPermission = rememberPermissionState(PermissionReadMediaImages)
     PermissionManager(permissionState = mediaPermission)
     var showPhotoImportConfig by remember { mutableStateOf(false) }
 
-    var cameraOutputUri by remember { mutableStateOf<Uri?>(null) }
-    var cameraOutputFile by remember { mutableStateOf<File?>(null) }
-    val (_, launchCameraCrop) = useCropLauncher(
-        onCroppedImageReady = { croppedUri ->
-            inputState.addImages(filesManager.createChatFilesByContents(listOf(croppedUri)))
+    val cameraCapture = rememberCameraCaptureAction(
+        inputState = inputState,
+        skipCrop = setting.displaySetting.skipCropImage,
+        onAttachmentAdded = {
             dismissAll()
+            inputState.requestInputFocus()
         },
-        onCleanup = {
-            cameraOutputFile?.delete()
-            cameraOutputFile = null
-            cameraOutputUri = null
-        }
     )
-    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captureSuccessful ->
-        if (captureSuccessful && cameraOutputUri != null) {
-            if (setting.displaySetting.skipCropImage) {
-                inputState.addImages(filesManager.createChatFilesByContents(listOf(cameraOutputUri!!)))
-                cameraOutputFile?.delete()
-                cameraOutputFile = null
-                cameraOutputUri = null
-                dismissAll()
-            } else {
-                launchCameraCrop(cameraOutputUri!!)
-            }
-        } else {
-            cameraOutputFile?.delete()
-            cameraOutputFile = null
-            cameraOutputUri = null
-        }
-    }
-    val onLaunchCamera: () -> Unit = {
-        if (cameraPermission.allRequiredPermissionsGranted) {
-            cameraOutputFile = context.cacheDir.resolve("camera_${Uuid.random()}.jpg")
-            cameraOutputUri = FileProvider.getUriForFile(
-                context, "${context.packageName}.fileprovider", cameraOutputFile!!
-            )
-            cameraLauncher.launch(cameraOutputUri!!)
-        } else {
-            cameraPermission.requestPermissions()
-        }
-    }
+    var screenshotJob by remember { mutableStateOf<Job?>(null) }
 
-    // 墨水屏设备无相机：短按拍照按钮 -> 连接电脑端 Screenshotter 服务，截取所有屏幕并加入当前对话
-    val onCaptureScreenshot: () -> Unit = {
-        scope.launch {
+    // 单击截取电脑屏幕，双击调用设备相机；不再假定墨水屏设备没有摄像头。
+    val onCaptureScreenshot: () -> Unit = capture@{
+        if (screenshotJob?.isActive == true || cameraCapture.isBusy) return@capture
+        screenshotJob = scope.launch {
             var config = setting.displaySetting.screenshotServer
             // 未配置 IP：先自动扫描局域网，免去手动输入
             if (config.host.isBlank()) {
@@ -867,6 +832,8 @@ private fun ChatFilesPickerSheet(
                 .onFailure {
                     toaster.show("截图失败: ${it.message ?: "未知错误"}", type = ToastType.Error)
                 }
+        }.also { job ->
+            job.invokeOnCompletion { screenshotJob = null }
         }
     }
 
@@ -1111,7 +1078,9 @@ private fun ChatFilesPickerSheet(
             showCompressDialog = showCompressDialog,
             onShowCompressDialogChange = { showCompressDialog = it },
             onDismiss = { dismissAll() },
-            onTakePic = onCaptureScreenshot,
+            onCaptureScreenshot = onCaptureScreenshot,
+            onLaunchCamera = cameraCapture.launch,
+            captureEnabled = screenshotJob?.isActive != true && !cameraCapture.isBusy,
             onConfigureScreenshot = { showScreenshotConfig = true },
             onPickImage = { imagePickerLauncher.launch("image/*") },
             onPickVideo = { videoPickerLauncher.launch("video/*") },
