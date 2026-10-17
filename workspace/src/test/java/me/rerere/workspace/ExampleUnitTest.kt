@@ -2,6 +2,7 @@ package me.rerere.workspace
 
 import com.sun.net.httpserver.HttpServer
 import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -88,6 +89,7 @@ class ExampleUnitTest {
 
     @Test
     fun commandRunsInsideWorkspaceFilesDirectory() {
+        requirePosixShell()
         val baseDir = Files.createTempDirectory("workspace-command-test").toFile()
         val manager = WorkspaceManager(baseDir)
         val root = "test-workspace"
@@ -102,6 +104,7 @@ class ExampleUnitTest {
 
     @Test
     fun commandReceivesStdin() {
+        requirePosixShell()
         val baseDir = Files.createTempDirectory("workspace-stdin-test").toFile()
         val manager = WorkspaceManager(baseDir)
         val root = "test-workspace"
@@ -119,6 +122,7 @@ class ExampleUnitTest {
 
     @Test
     fun commandWithoutStdinGetsImmediateEof() {
+        requirePosixShell()
         val baseDir = Files.createTempDirectory("workspace-stdin-eof-test").toFile()
         val manager = WorkspaceManager(baseDir)
         val root = "test-workspace"
@@ -154,6 +158,7 @@ class ExampleUnitTest {
 
     @Test
     fun commandOutputIsTruncatedAtLimit() {
+        requirePosixShell()
         val baseDir = Files.createTempDirectory("workspace-truncate-test").toFile()
         val manager = WorkspaceManager(baseDir)
         val root = "test-workspace"
@@ -167,6 +172,10 @@ class ExampleUnitTest {
         assertEquals(0, result.exitCode)
         assertTrue(result.truncated)
         assertEquals(MAX_OUTPUT_CHARS, result.stdout.length)
+    }
+
+    private fun requirePosixShell() {
+        assumeTrue("HostShellRunner requires /bin/sh or /system/bin/sh", File("/bin/sh").exists() || File("/system/bin/sh").exists())
     }
 
     @Test

@@ -102,13 +102,13 @@ fun RikkahubTheme(
     CompositionLocalProvider(
         LocalDarkMode provides darkTheme,
         LocalExtendColors provides extendColors,
-        LocalOverscrollFactory provides null
+        // LocalOverscrollFactory provides null
     ) {
         MaterialExpressiveTheme(
             colorScheme = colorSchemeConverted,
             typography = Typography,
             content = content,
-            motionScheme = MotionScheme.expressive()
+            motionScheme = if (settings.displaySetting.disableCursorBlink) EInkMotionScheme else MotionScheme.expressive()
         )
     }
 }

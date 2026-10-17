@@ -15,7 +15,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.takeOrElse
-import me.rerere.rikkahub.ui.components.ui.LocalExportContext
+import me.rerere.ui.components.LocalExportContext
 
 @Composable
 fun MathInline(

@@ -38,7 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.net.toFile
-import com.dokar.sonner.ToastType
+import me.rerere.ui.toast.ToastType
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.data.paperang.PaperangPrinter
 import me.rerere.rikkahub.data.paperang.decodeBitmapFromSource

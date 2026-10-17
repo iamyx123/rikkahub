@@ -52,7 +52,7 @@ object ZybCrypto {
                 '\r' -> sb.append("\\r")
                 '\t' -> sb.append("\\t")
                 '\b' -> sb.append("\\b")
-                '' -> sb.append("\\f")
+                '\u000c' -> sb.append("\\f")
                 else -> if (c < ' ') sb.append("\\u%04x".format(c.code)) else sb.append(c)
             }
         }

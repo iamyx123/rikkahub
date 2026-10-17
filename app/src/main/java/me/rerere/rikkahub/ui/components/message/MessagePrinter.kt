@@ -43,8 +43,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.navigation3.runtime.NavKey
-import com.dokar.sonner.ToastType
-import com.dokar.sonner.rememberToasterState
+import me.rerere.ui.toast.ToastType
+import me.rerere.ui.toast.rememberToasterState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateListOf
@@ -55,7 +55,7 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.paperang.PaperangPrinter
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
-import me.rerere.rikkahub.ui.components.ui.BitmapComposer
+import me.rerere.ui.components.BitmapComposer
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -331,7 +331,7 @@ fun MessagePrintPreviewDialog(
 }
 
 /** 检查打印机是否就绪；未就绪时按蓝牙状态给出正确提示。 */
-private fun ensurePrinterReady(printer: PaperangPrinter, toaster: com.dokar.sonner.ToasterState): Boolean {
+private fun ensurePrinterReady(printer: PaperangPrinter, toaster: me.rerere.ui.toast.ToasterState): Boolean {
     if (printer.status.value.state == PaperangPrinter.ConnState.CONNECTED) return true
     val msg = if (!printer.isBluetoothOn()) "蓝牙未开启，请先打开蓝牙" else "打印机未连接，请长按「喵喵机错题」连接打印机"
     toaster.show(message = msg, type = ToastType.Warning)

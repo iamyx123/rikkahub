@@ -26,8 +26,8 @@ android {
         applicationId = "me.rerere.rikkahub"
         minSdk = 26
         targetSdk = 37
-        versionCode = 191
-        versionName = "2.5.6"
+        versionCode = 192
+        versionName = "2.5.6-dev.20261018"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -226,9 +226,6 @@ dependencies {
     implementation(libs.koin.compose)
     implementation(libs.koin.androidx.workmanager)
 
-    // jetbrains markdown parser
-    implementation(libs.jetbrains.markdown)
-
     // okhttp
     implementation(libs.okhttp)
     implementation(libs.okhttp.sse)
@@ -282,17 +279,17 @@ dependencies {
     implementation(libs.androidx.paging.runtime)
     implementation(libs.androidx.paging.compose)
 
+    // media3 (video playback)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
+
     // Apache Commons Text
     implementation(libs.commons.text)
-
-    // Toast (Sonner)
-    implementation(libs.sonner)
 
     // Reorderable (https://github.com/Calvin-LL/Reorderable/)
     implementation(libs.reorderable)
 
-    // lucide icons
-    implementation(libs.lucide.icons)
+    // icons
     implementation(libs.huge.icons)
 
     // image viewer
@@ -324,9 +321,10 @@ dependencies {
     implementation(project(":highlight"))
     implementation(project(":search"))
     implementation(project(":speech"))
-    implementation(project(":videogen"))
+    implementation(project(":mediagen"))
     implementation(project(":common"))
     implementation(project(":material3"))
+    implementation(project(":ui"))
     implementation(project(":workspace"))
     implementation(project(":oauth"))
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
@@ -339,6 +337,7 @@ dependencies {
     testImplementation(libs.junit)
     // Android 单测里 org.json 是抛异常的桩，需要真实实现
     testImplementation(libs.json)
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

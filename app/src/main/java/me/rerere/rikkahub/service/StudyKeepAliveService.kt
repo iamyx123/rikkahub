@@ -73,7 +73,7 @@ class StudyKeepAliveService : Service() {
     }
 
     private fun buildNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setSmallIcon(R.drawable.small_icon)
+        .setSmallIcon(R.drawable.ic_stat_rikkahub)
         .setContentTitle(getString(R.string.study_desktop_notification_title))
         .setContentText(getString(R.string.study_desktop_notification_text))
         .setOngoing(true)
