@@ -3,6 +3,7 @@ package me.rerere.rikkahub.data.paperang
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
@@ -385,7 +386,7 @@ class PaperangPrinter(
                 writeDeferred = CompletableDeferred()
                 val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     g.writeCharacteristic(ch, chunk, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) ==
-                        BluetoothGatt.GATT_SUCCESS
+                        BluetoothStatusCodes.SUCCESS
                 } else {
                     @Suppress("DEPRECATION")
                     run {

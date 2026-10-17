@@ -1606,4 +1606,7 @@
   <string name="media_creation_page_nothing_to_save">В выбранных элементах нет изображений или видео для сохранения</string>
   <string name="media_creation_page_saved_files">Сохранено %1$d файлов в галерею</string>
   <string name="media_creation_page_saved_files_partial">Сохранено %1$d файлов, %2$d не удалось: %3$s</string>
+  <string name="chat_page_compress_nothing_to_compress">После последнего резюме нет новых сообщений для сжатия</string>
+  <string name="chat_page_compress_handle_pending_tools">Перед сжатием обработайте ожидающие вызовы инструментов</string>
+  <string name="chat_page_compress_tool_call_response">Модель попыталась вызвать инструмент вместо создания резюме. Повторите попытку.</string>
 </resources>

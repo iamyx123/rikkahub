@@ -95,7 +95,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.LocalActivity
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalScrollCaptureInProgress
@@ -287,7 +287,7 @@ private fun ChatListNormal(
     val loadingState by rememberUpdatedState(loading)
     val conversationUpdated by rememberUpdatedState(conversation)
     val density = LocalDensity.current
-    val activity = LocalContext.current as? me.rerere.rikkahub.RouteActivity
+    val activity = LocalActivity.current as? me.rerere.rikkahub.RouteActivity
 
     // 用 rememberUpdatedState 保证监听器读取最新值: DisposableEffect(Unit) 的 lambda
     // 只捕获首次组合时的对象, 冷启动恢复会话时设置尚未加载完成(翻页开关为默认关闭),

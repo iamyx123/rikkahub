@@ -1600,4 +1600,11 @@
   <string name="media_creation_page_nothing_to_save">لا تحتوي العناصر المحددة على صور أو مقاطع فيديو لحفظها</string>
   <string name="media_creation_page_saved_files">تم حفظ %1$d من الملفات في المعرض</string>
   <string name="media_creation_page_saved_files_partial">تم حفظ %1$d من الملفات، وفشل %2$d: %3$s</string>
+  <string name="chat_page_compress_nothing_to_compress">لا توجد رسائل جديدة لضغطها منذ آخر ملخص</string>
+  <string name="chat_page_compress_handle_pending_tools">عالج استدعاءات الأدوات المعلقة قبل الضغط</string>
+  <string name="chat_page_compress_tool_call_response">حاول النموذج استدعاء أداة بدلاً من كتابة الملخص. يرجى المحاولة مرة أخرى.</string>
+  <string name="setting_display_page_immersive_mode_desc">إخفاء شريط الحالة لعرض ملء الشاشة. اسحب من الحافة العلوية لإظهاره مؤقتاً</string>
+  <string name="setting_display_page_immersive_mode_title">الوضع الغامر</string>
+  <string name="setting_display_page_scroll_to_bottom_on_send_desc">الانتقال تلقائياً إلى أحدث رسالة عند الإرسال؛ عطّل هذا الخيار للاحتفاظ بموضع القراءة الحالي</string>
+  <string name="setting_display_page_scroll_to_bottom_on_send_title">الانتقال إلى الأحدث عند الإرسال</string>
 </resources>

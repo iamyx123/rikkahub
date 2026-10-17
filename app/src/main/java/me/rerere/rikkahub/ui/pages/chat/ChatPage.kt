@@ -52,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
@@ -709,6 +710,7 @@ private fun ChatFilesPickerSheet(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val toaster = LocalToaster.current
     val filesManager: FilesManager = koinInject()
     val screenshotClient: RemoteScreenshotClient = koinInject()
@@ -751,7 +753,7 @@ private fun ChatFilesPickerSheet(
                 val localUri = filesManager.createChatFilesByContents(listOf(uri)).firstOrNull()
                     ?: run {
                         toaster.show(
-                            context.getString(R.string.chat_input_file_read_failed, fileName),
+                            resources.getString(R.string.chat_input_file_read_failed, fileName),
                             type = ToastType.Error
                         )
                         return@mapNotNull null
@@ -759,7 +761,7 @@ private fun ChatFilesPickerSheet(
                 UIMessagePart.Document(url = localUri.toString(), fileName = fileName, mime = mime)
             } else {
                 toaster.show(
-                    context.getString(R.string.chat_input_unsupported_file_type, fileName),
+                    resources.getString(R.string.chat_input_unsupported_file_type, fileName),
                     type = ToastType.Error
                 )
                 null

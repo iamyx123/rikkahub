@@ -1604,4 +1604,7 @@
   <string name="media_creation_page_nothing_to_save">所選項目沒有可儲存的圖片或影片</string>
   <string name="media_creation_page_saved_files">已將 %1$d 個檔案儲存至相簿</string>
   <string name="media_creation_page_saved_files_partial">已儲存 %1$d 個檔案，%2$d 個失敗：%3$s</string>
+  <string name="chat_page_compress_nothing_to_compress">自上次摘要後沒有需要壓縮的新訊息</string>
+  <string name="chat_page_compress_handle_pending_tools">請先處理待執行的工具呼叫，再壓縮對話</string>
+  <string name="chat_page_compress_tool_call_response">模型嘗試呼叫工具，沒有產生摘要。請重試。</string>
 </resources>

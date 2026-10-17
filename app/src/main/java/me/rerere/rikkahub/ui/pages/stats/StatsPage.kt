@@ -50,7 +50,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.format.TextStyle
 import java.time.temporal.TemporalAdjusters
-import java.util.Locale
+import androidx.compose.ui.platform.LocalConfiguration
 
 @Composable
 fun StatsPage(vm: StatsVM = koinViewModel()) {
@@ -143,6 +143,7 @@ private fun HeatmapCard(conversationsPerDay: Map<LocalDate, Int>, modifier: Modi
 
 @Composable
 private fun ChatHeatmap(conversationsPerDay: Map<LocalDate, Int>) {
+    val locale = LocalConfiguration.current.locales[0]
     val today = LocalDate.now()
     val startSunday = today
         .with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
@@ -219,7 +220,7 @@ private fun ChatHeatmap(conversationsPerDay: Map<LocalDate, Int>) {
                                 text = if (labelDate.monthValue == 1) {
                                     labelDate.year.toString()
                                 } else {
-                                    labelDate.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+                                    labelDate.month.getDisplayName(TextStyle.SHORT, locale)
                                 },
                                 modifier = Modifier.wrapContentWidth(unbounded = true),
                                 style = MaterialTheme.typography.labelSmall,
