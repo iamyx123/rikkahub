@@ -172,7 +172,11 @@ fun InteractiveUiBlock(source: String, complete: Boolean) {
 /** Export remains synchronous: include saved values and the complete source for reproducibility. */
 @Composable
 fun InteractiveUiExport(source: String) {
-    val values = LocalInteractiveMessage.current?.message?.interactiveUiStates?.get(interactiveUiKey(source))
+    val message = LocalInteractiveMessage.current?.message
+    val key = interactiveUiKey(source)
+    val snapshot = LocalInteractiveUiSnapshots.current["${message?.id}/$key"]
+    if(snapshot?.get("root") != null) { NativeUiSnapshot(snapshot["root"]); return }
+    val values = message?.interactiveUiStates?.get(key)
     Column {
         Text("交互卡片 · 静态记录", style = MaterialTheme.typography.titleSmall)
         values?.forEach { (name, value) -> Text("$name = $value", style = MaterialTheme.typography.bodySmall) }
@@ -200,16 +204,24 @@ internal fun NativeUiNode(node: JsonElement?, enabled: Boolean, dispatch: (JsonO
             }
         }
         "Card" -> Surface(shape=MaterialTheme.shapes.large,color=MaterialTheme.colorScheme.surfaceContainerHigh){Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){Text(p.text("title"),style=MaterialTheme.typography.titleSmallEmphasized);renderChildren()}}
+        "Carousel" -> NativeUiCarousel(obj.text("id"), p, enabled, dispatch)
+        "Popover" -> NativeUiPopover(obj.text("id"), p, enabled, dispatch)
+        "Link" -> NativeUiLink(p)
+        "Icon" -> NativeUiIcon(p)
+        "ListItem" -> Column { if(p.text("label").isNotBlank()) Text(p.text("label"),style=MaterialTheme.typography.labelSmall); NativeUiSlot(p["content"], enabled, dispatch) }
         "Title" -> Text(p.text("text"),style=MaterialTheme.typography.titleMedium)
         "Caption","Label" -> Text(p.text("text"),style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
         "Badge" -> Surface(shape=MaterialTheme.shapes.small,color=MaterialTheme.colorScheme.secondaryContainer){Text(p.text("text"),Modifier.padding(horizontal=10.dp,vertical=5.dp),style=MaterialTheme.typography.labelMedium)}
-        "Text","Quote" -> Text(p.text("text"),style=MaterialTheme.typography.bodyMedium)
+        "Text" -> if(p["text"] is JsonArray) FlowRow(horizontalArrangement=Arrangement.spacedBy(4.dp)) { NativeUiSlot(p["text"],enabled,dispatch) } else CompositionLocalProvider(LocalInteractiveMessage provides null) { MarkdownBlock(p.text("text")) }
+        "Quote" -> Text(p.text("text"),style=MaterialTheme.typography.bodyMedium)
         "Markdown" -> CompositionLocalProvider(LocalInteractiveMessage provides null){MarkdownBlock(p.text("text"))}
         "Code" -> HighlightCodeBlock(p.text("text"),"plaintext",Modifier.fillMaxWidth(),completeCodeBlock=true)
         "Math" -> MathBlock(latex=p.text("text"),modifier=Modifier.fillMaxWidth(),fontSize=LocalTextStyle.current.fontSize)
         "Divider" -> HorizontalDivider()
         "Spacer" -> Spacer(Modifier.height(p.number("size",8.0).coerceIn(0.0,48.0).dp))
-        "List" -> Column(verticalArrangement=Arrangement.spacedBy(6.dp)){p.list("items").forEach{Row{Text("•  ");NativeUiNode(it,enabled,dispatch)}}}
+        "List" -> Column(verticalArrangement=Arrangement.spacedBy(6.dp)){p.list("items").forEachIndexed{index,item->Row{Text(if(p.text("variant")=="numbers") "${index+1}.  " else if(p.text("variant")=="timeline") "│  " else "•  ");NativeUiNode(item,enabled,dispatch)}}}
+        "IconButton" -> FilledTonalIconButton(enabled=enabled,onClick={dispatch(buildJsonObject{put("type","action");put("target",p.text("action"))})}) { NativeUiIcon(buildJsonObject{put("name",p.text("icon"));put("label",p.text("label"))}) }
+        "Pressable" -> OutlinedCard(enabled=enabled,onClick={dispatch(buildJsonObject{put("type","action");put("target",p.text("action"))})},modifier=Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) { children.forEach{NativeUiNode(it,false,{})} } }
         "Button" -> {
             val click={dispatch(buildJsonObject{put("type","action");put("target",p.text("action"))})}
             when(p.text("variant")){"text"->TextButton(onClick=click,enabled=enabled){Text(p.text("label"))};"tonal"->FilledTonalButton(onClick=click,enabled=enabled){Text(p.text("label"))};else->Button(onClick=click,enabled=enabled){Text(p.text("label"))}}
@@ -243,12 +255,14 @@ internal fun NativeUiNode(node: JsonElement?, enabled: Boolean, dispatch: (JsonO
             val date=runCatching{LocalDate.parse(p.text("value"))}.getOrDefault(LocalDate.now())
             OutlinedButton(enabled=enabled,onClick={DatePickerDialog(context,{_,year,month,day->dispatch(change(p.text("valueBinding"),JsonPrimitive(LocalDate.of(year,month+1,day).toString())))},date.year,date.monthValue-1,date.dayOfMonth).show()}){Text("${p.text("label")}  ${p.text("value")}")}
         }
+        "Timer" -> NativeUiTimer(obj.text("id"),p,enabled,dispatch)
+        "Celebration" -> NativeUiCelebration(p)
         "Progress" -> Column{Text("${p.text("label")} ${p.number("value")}",style=MaterialTheme.typography.labelMedium);LinearProgressIndicator(progress={ (p.number("value")/p.number("max",100.0).coerceAtLeast(0.001)).toFloat().coerceIn(0f,1f)},modifier=Modifier.fillMaxWidth())}
         "Flashcard","Accordion" -> {
             var expanded by rememberSaveable(obj.text("id")){mutableStateOf(false)}
             OutlinedCard(onClick={expanded=!expanded},modifier=Modifier.fillMaxWidth()){
                 Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-                    Text(if(type=="Flashcard")p.text(if(expanded)"back" else "front") else p.text("title"))
+                    if(type=="Flashcard") NativeUiSlot(p[if(expanded)"back" else "front"],enabled,dispatch) else Text(p.text("title"))
                     if(type=="Accordion"&&expanded)renderChildren()
                     Text(if(expanded)"点击收起" else if(type=="Flashcard")"点击查看答案" else "点击展开",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
                 }
@@ -262,7 +276,9 @@ internal fun NativeUiNode(node: JsonElement?, enabled: Boolean, dispatch: (JsonO
         "Chart" -> NativeUiChart(p)
         "Svg" -> NativeUiVector(p)
         "Map" -> NativeUiMap(p)
+        "MapMarker" -> NativeUiMap(buildJsonObject{put("markers",JsonArray(listOf(p)))})
         "Image" -> NativeUiImage(p)
+        "SearchImage" -> NativeUiSearchImage(p)
         else -> Text("不支持的组件：$type",style=MaterialTheme.typography.labelSmall)
     }
 }

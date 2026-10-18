@@ -107,3 +107,29 @@
   display: grid;
   gap: 0.75rem;
 }
+.intelligent-ui .ui-page-controls {
+  justify-content: space-between;
+}
+.intelligent-ui.ui-popover,
+.intelligent-ui.ui-map-dialog {
+  margin: auto;
+  width: min(42rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  padding: 1.25rem;
+}
+.intelligent-ui::backdrop {
+  background: #0008;
+}
+.intelligent-ui .ui-pressable {
+  cursor: pointer;
+}
+.intelligent-ui .ui-timeline {
+  border-inline-start: 2px solid var(--border);
+  padding-inline-start: 1rem;
+}
+.intelligent-ui svg.ui-street-map {
+  width: 100%;
+  max-height: min(65vh, 34rem);
+  border: 1px solid var(--border);
+}

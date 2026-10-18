@@ -1,0 +1,27 @@
+$n = 3
+$name = "示例"
+$checked = false
+$choice = "甲"
+$date = "2026-10-19"
+$seconds = 2
+root = Col([
+  Title("原生交互组件验收"),
+  Row([Caption("说明"),Label("标签"),Badge("状态"),Icon("map-pin",24,"地点")]),
+  Box([Text(["行内文字",Link("来源","https://example.com"),Math("x^2")])],"surface",8),
+  Grid([Card("卡片一",[Text("内容")]),Card("卡片二",[Text("内容")])],2),
+  Carousel([Text("第一页"),Text("第二页")]),
+  Popover("展开详情",[Text("弹出的内容"),Code("let x = 1")]),
+  Markdown("**粗体**和普通正文"),Quote("引用内容"),Divider(),Spacer(8),
+  List([ListItem("第一项","上午"),ListItem(Text("第二项"),"下午")],"timeline"),
+  Form([Input($name,"名字"),TextArea($name,"多行"),NumberInput($n,"数量"),Slider($n,0,10,1,"数量滑杆"),Checkbox($checked,"确认"),Switch($checked,"启用"),Select($choice,["甲","乙"],"下拉"),RadioGroup($choice,["甲","乙"],"单选"),SegmentedControl($choice,["甲","乙"],"分段"),DatePicker($date,"日期")]),
+  Button("加一",@Set($n,$n+1)),IconButton("plus",@Set($n,$n+1),"增加数量"),
+  Pressable([Text("点击此区域加一")],@Set($n,$n+1),"增加数量"),
+  Timer($seconds,"两秒倒计时"),Progress($n,10,"进度"),
+  Flashcard([Text("问题"),Math("1+1")],[Text("答案"),Text("2")]),
+  Accordion("折叠详情",[Text("内容")]),Celebration($checked,"已完成"),
+  Table(["名称","数量"],[[Text("项目"),$n]]),
+  Chart("scatter",[{x:1,y:2},{x:10,y:5}],"x",["y"],"散点图"),
+  Image("https://example.com/photo.jpg","测试图片，按点击加载"),SearchImage("北京天坛","图片搜索"),
+  Map([MapMarker(39.9,116.4,"北京","城市"),MapMarker(31.2,121.5,"上海","城市")],"地点地图"),
+  Svg("0 0 200 160",[G([Circle(20,20,10,"primary"),Ellipse(60,20,15,8,"none","ink"),Rect(90,10,20,20,"secondary"),Line(0,50,180,50,"none","ink"),Path("M 10 80 L 40 60 L 70 80 Z","primary"),Polyline("80,80 100,60 120,80","none","ink"),Polygon("130,80 150,60 170,80","secondary"),SvgText(10,120,"矢量文字",14,"ink")])],"基本图形")
+])

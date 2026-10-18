@@ -470,13 +470,15 @@ private suspend fun exportToImage(
     val filename = "chat-export-${LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"))}.png"
     val composer = BitmapComposer(scope)
     val activity = context.getActivity() ?: error("Failed to get activity")
+    val snapshots = me.rerere.rikkahub.ui.components.intelligentui.prepareInteractiveUiSnapshots(context, messages)
 
     val bitmap = composer.composableToBitmap(
         activity = activity,
         width = 540.dp,
         screenDensity = density,
         content = {
-            CompositionLocalProvider(LocalSettings provides settings) {
+            CompositionLocalProvider(LocalSettings provides settings,
+                me.rerere.rikkahub.ui.components.intelligentui.LocalInteractiveUiSnapshots provides snapshots) {
                 ExportedChatImage(
                     conversation = conversation,
                     messages = messages,

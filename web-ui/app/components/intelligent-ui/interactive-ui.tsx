@@ -15,6 +15,7 @@ import {
   type UiState,
 } from "./runtime";
 import "./interactive-ui.css";
+import { CardIcon, Carousel, Popover, Countdown, SearchPhoto, StreetMap } from "./extras";
 
 export const InteractiveMessage = React.createContext<{
   conversationId: string;
@@ -215,6 +216,8 @@ function Input({
 
 function Node({ node, dispatch }: { node: any; dispatch: (e: UiEvent) => void }): React.ReactNode {
   if (node == null) return null;
+  if (Array.isArray(node))
+    return node.map((item, i) => <Node key={item?.id ?? i} node={item} dispatch={dispatch} />);
   if (typeof node !== "object") return <span>{String(node)}</span>;
   const p = node.props ?? {},
     type = node.type;
@@ -223,6 +226,65 @@ function Node({ node, dispatch }: { node: any; dispatch: (e: UiEvent) => void })
   ));
   const change = (value: unknown) => dispatch({ type: "change", target: p.valueBinding, value });
   switch (type) {
+    case "Carousel":
+      return <Carousel p={p} render={(value) => <Node node={value} dispatch={dispatch} />} />;
+    case "Popover":
+      return <Popover p={p} render={(value) => <Node node={value} dispatch={dispatch} />} />;
+    case "Icon":
+      return <CardIcon p={p} vector={(value) => <Vector node={value} />} />;
+    case "Link":
+      return (
+        <a href={safeUrl(p.url)} target="_blank" rel="noopener noreferrer">
+          {p.text}
+        </a>
+      );
+    case "ListItem":
+      return (
+        <div>
+          {p.label && <small>{p.label}</small>}
+          <Node node={p.content} dispatch={dispatch} />
+        </div>
+      );
+    case "IconButton":
+      return (
+        <Button
+          aria-label={p.label}
+          title={p.label}
+          variant="outline"
+          size="icon"
+          onClick={() => dispatch({ type: "action", target: p.action })}
+        >
+          <CardIcon p={{ name: p.icon }} vector={(value) => <Vector node={value} />} />
+        </Button>
+      );
+    case "Pressable":
+      return (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label={p.label}
+          className="ui-card ui-pressable"
+          onClick={() => dispatch({ type: "action", target: p.action })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              dispatch({ type: "action", target: p.action });
+            }
+          }}
+        >
+          {children}
+        </div>
+      );
+    case "Timer":
+      return <Countdown p={p} dispatch={dispatch} />;
+    case "Celebration":
+      return p.when ? (
+        <div role="status" className="ui-card">
+          ✓ {p.message ?? "完成了"}
+        </div>
+      ) : null;
+    case "SearchImage":
+      return <SearchPhoto p={p} image={(value) => <CardImage p={value} />} />;
     case "Row":
       return <div className="ui-row">{children}</div>;
     case "Grid":
@@ -255,7 +317,15 @@ function Node({ node, dispatch }: { node: any; dispatch: (e: UiEvent) => void })
     case "Badge":
       return <span className="ui-badge">{p.text}</span>;
     case "Text":
-      return <p>{p.text}</p>;
+      return Array.isArray(p.text) ? (
+        <div className="ui-row">
+          <Node node={p.text} dispatch={dispatch} />
+        </div>
+      ) : (
+        <InteractiveMessage.Provider value={null}>
+          <Markdown content={p.text} allowCodePreview={false} />
+        </InteractiveMessage.Provider>
+      );
     case "Quote":
       return <blockquote>{p.text}</blockquote>;
     case "Code":
@@ -279,14 +349,14 @@ function Node({ node, dispatch }: { node: any; dispatch: (e: UiEvent) => void })
     case "Spacer":
       return <div style={{ height: Math.min(48, Math.max(0, p.size ?? 8)) }} />;
     case "List":
-      return (
-        <ul>
-          {p.items?.map((n: any, i: number) => (
-            <li key={i}>
-              <Node node={n} dispatch={dispatch} />
-            </li>
-          ))}
-        </ul>
+      return React.createElement(
+        p.variant === "numbers" ? "ol" : "ul",
+        { className: p.variant === "timeline" ? "ui-timeline" : undefined },
+        p.items?.map((n: any, i: number) => (
+          <li key={i}>
+            <Node node={n} dispatch={dispatch} />
+          </li>
+        )),
       );
     case "Button":
       return (
@@ -372,8 +442,10 @@ function Node({ node, dispatch }: { node: any; dispatch: (e: UiEvent) => void })
     case "Flashcard":
       return (
         <details className="ui-card">
-          <summary>{type === "Flashcard" ? p.front : p.title}</summary>
-          {type === "Flashcard" ? <p>{p.back}</p> : children}
+          <summary>
+            {type === "Flashcard" ? <Node node={p.front} dispatch={dispatch} /> : p.title}
+          </summary>
+          {type === "Flashcard" ? <Node node={p.back} dispatch={dispatch} /> : children}
         </details>
       );
     case "Table":
@@ -421,25 +493,9 @@ function Node({ node, dispatch }: { node: any; dispatch: (e: UiEvent) => void })
         </figure>
       );
     case "Map":
-      return (
-        <section>
-          <h3>{p.title ?? "地点坐标概览"}</h3>
-          <small>点击坐标打开地图</small>
-          <ul>
-            {p.markers?.slice(0, 50).map((m: any, i: number) => (
-              <li key={i}>
-                <a
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  href={`https://www.openstreetmap.org/?mlat=${Number(m.lat)}&mlon=${Number(m.lon)}#map=14/${Number(m.lat)}/${Number(m.lon)}`}
-                >
-                  {m.label} ({m.lat}, {m.lon})
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-      );
+      return <StreetMap p={p} />;
+    case "MapMarker":
+      return <StreetMap p={{ markers: [p] }} />;
     default:
       return <small>不支持的组件：{String(type)}</small>;
   }
@@ -537,7 +593,12 @@ function Chart({ p }: { p: Record<string, any> }) {
     high = Math.max(1, ...values);
   const colors = ["var(--primary)", "var(--foreground)", "var(--muted-foreground)"];
   const y = (n: number) => 180 - ((n - low) / (high - low)) * 160;
-  const x = (i: number) => 20 + (i / Math.max(1, rows.length - 1)) * 360;
+  const xs = rows.map((r: any) => Number(r[p.xKey]));
+  const numericX = p.type === "scatter" && xs.every(Number.isFinite);
+  const minX = Math.min(...xs),
+    xRange = Math.max(0.001, Math.max(...xs) - minX);
+  const x = (i: number) =>
+    20 + (numericX ? (xs[i] - minX) / xRange : i / Math.max(1, rows.length - 1)) * 360;
   let angle = -Math.PI / 2;
   const total = rows.reduce((s: number, r: any) => s + Math.max(0, Number(r[series[0]]) || 0), 0);
   return (

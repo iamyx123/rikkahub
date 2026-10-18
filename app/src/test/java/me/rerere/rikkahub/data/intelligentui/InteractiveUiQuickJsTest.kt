@@ -32,6 +32,11 @@ class InteractiveUiQuickJsTest {
             assertEquals("¥493.80",result["root"]!!.jsonObject["props"]!!.jsonObject["children"]!!.jsonArray[1].jsonObject["props"]!!.jsonObject["text"]!!.jsonPrimitive.content)
             repeat(20){result=render(result["state"]!!.jsonObject)}
             println("OPENUI_QUICKJS initMs=$initMs render22Ms=${(System.nanoTime()-start)/1_000_000} memory=${js.memoryUsage}")
+            val fixture=listOf(File("../intelligent-ui/examples/all-components.oui"),File("intelligent-ui/examples/all-components.oui")).first{it.isFile}.readText()
+            val completeRequest=buildJsonObject{put("source",fixture);put("state",buildJsonObject{})}
+            val complete=Json.parseToJsonElement(js.evaluate<String>("RikkaOpenUI.renderJson(${JsonPrimitive(completeRequest.toString())})")).jsonObject
+            assertFalse(complete.toString(),complete.containsKey("error"))
+            assertTrue(complete["errors"]!!.jsonArray.isEmpty())
             js.evaluationTimeoutMillis=20
             var timedOut=false
             try {js.evaluate<Any?>("while(true){}") } catch (_:Exception){timedOut=true}

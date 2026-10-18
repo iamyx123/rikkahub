@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {render,renderJson,promptOptions} from './dist/engine.mjs';
+import {render,renderJson,promptOptions,library} from './dist/engine.mjs';
+import {readFile,readdir} from 'node:fs/promises';
 const source='$n = 2\nroot = Col([Slider($n,0,10,1,"N"),Text("Result: " + @Pow($n,2)),Button("Plus",@Set($n,$n+1)),Button("Reset",@Reset($n))])';
 test('prompt examples render without errors',()=>{for(const s of promptOptions.examples)assert.deepEqual(render(s).errors,[]);});
 test('bindings actions persisted state and reset',()=>{
@@ -34,4 +35,39 @@ test('invalid input and resource limits yield recoverable errors',()=>{
   assert.throws(()=>render(source,{$n:'x'.repeat(32769)}));
   assert.throws(()=>render('root = Col(['+Array.from({length:301},()=> 'Text("x")').join(',')+'])'));
   assert.ok(JSON.parse(renderJson('{invalid')).error);
+});
+
+test('all supported upstream primitives render and new actions update bound state',async()=>{
+  const source=await readFile(new URL('./examples/all-components.oui',import.meta.url),'utf8');
+  const result=render(source);
+  assert.deepEqual(result.errors,[]);
+  const nodes=[];
+  function walk(value){if(!value||typeof value!=='object')return;if(value.type&&value.props)nodes.push(value);Object.values(value).forEach(walk);}
+  walk(result.root);
+  const rendered=new Set(nodes.map(n=>n.type));
+  assert.deepEqual([...rendered].sort(),Object.keys(library.components).sort());
+  const upstream=JSON.parse(await readFile(new URL('./upstream-components.json',import.meta.url),'utf8'));
+  for(const component of upstream.components) if(!Object.hasOwn(upstream.excluded,component)) assert.ok(rendered.has(component),component);
+  for(const type of ['IconButton','Pressable']) {
+    const node=nodes.find(n=>n.type===type);
+    const changed=render(source,result.state,{type:'action',target:node.props.action});
+    assert.equal(changed.state.$n,4,type);
+  }
+  const timer=nodes.find(n=>n.type==='Timer');
+  assert.equal(render(source,result.state,{type:'change',target:timer.props.secondsBinding,value:0}).state.$seconds,0);
+  assert.ok(nodes.find(n=>n.type==='Map').props.markers.every(n=>n.type==='MapMarker'));
+  assert.deepEqual(result.effects,[],'network/media elements must not trigger effects merely by rendering');
+});
+
+test('every bundled icon uses native vector primitives and matches web assets',async()=>{
+  const base=new URL('../app/src/main/assets/intelligent-ui/icons/',import.meta.url);
+  const web=new URL('../web-ui/public/intelligent-ui/icons/',import.meta.url);
+  const names=await readdir(base);assert.equal(names.length,1671);
+  for(const name of names){
+    const text=await readFile(new URL(name,base),'utf8');
+    assert.equal(text,await readFile(new URL(name,web),'utf8'));
+    const icon=JSON.parse(text);
+    assert.equal(icon.viewBox,'0 0 24 24');
+    assert.ok(icon.children.every(n=>['Path','Rect','Circle','Ellipse','Line','Polyline','Polygon'].includes(n.type)));
+  }
 });

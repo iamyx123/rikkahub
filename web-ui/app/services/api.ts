@@ -66,7 +66,9 @@ function getValidWebAuthToken(): string | null {
 
 function dispatchWebAuthRequired(detail: WebAuthRequiredEventDetail) {
   if (!isBrowser()) return;
-  window.dispatchEvent(new CustomEvent<WebAuthRequiredEventDetail>(WEB_AUTH_REQUIRED_EVENT, { detail }));
+  window.dispatchEvent(
+    new CustomEvent<WebAuthRequiredEventDetail>(WEB_AUTH_REQUIRED_EVENT, { detail }),
+  );
 }
 
 const kyInstance = ky.create({
@@ -147,6 +149,13 @@ export function appendWebAuthQuery(url: string): string {
  * API client with unwrapped response data
  */
 const api = {
+  async getBlob(url: string, options?: Options): Promise<Blob> {
+    try {
+      return await kyInstance.get(url, options).blob();
+    } catch (error) {
+      return handleError(error);
+    }
+  },
   async get<T>(url: string, options?: Options): Promise<T> {
     try {
       return await kyInstance.get(url, options).json<T>();

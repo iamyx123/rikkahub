@@ -50,6 +50,9 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateListOf
 import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.data.intelligentui.interactiveUiPrintText
+import me.rerere.rikkahub.ui.components.intelligentui.LocalInteractiveUiSnapshots
+import me.rerere.rikkahub.ui.components.intelligentui.ProvideInteractiveUiExport
+import me.rerere.rikkahub.ui.components.intelligentui.prepareInteractiveUiSnapshots
 import me.rerere.highlight.CodeHighlighter
 import me.rerere.highlight.LocalCodeHighlighter
 import me.rerere.rikkahub.data.datastore.Settings
@@ -92,7 +95,7 @@ fun PrintableMessageContent(
             )
         )
     }
-    RikkahubTheme {
+    RikkahubTheme(colorMode = me.rerere.rikkahub.ui.theme.ColorMode.LIGHT) {
         CompositionLocalProvider(
             LocalCodeHighlighter provides highlighter,
             LocalSettings provides printSettings,
@@ -127,20 +130,27 @@ suspend fun renderMessageBitmap(
     settings: Settings,
     text: String,
     scale: Float,
+    message: UIMessage? = null,
 ): Bitmap {
     val composer = BitmapComposer(scope)
+    val exportMessage = message ?: UIMessage.assistant(text)
+    val snapshots = prepareInteractiveUiSnapshots(activity, listOf(exportMessage))
     return composer.composableToBitmap(
         activity = activity,
         width = renderWidthDp(scale).dp,
         screenDensity = density,
     ) {
-        PrintableMessageContent(text = text, highlighter = highlighter, settings = settings)
+        CompositionLocalProvider(LocalInteractiveUiSnapshots provides snapshots) {
+            ProvideInteractiveUiExport(exportMessage) {
+                PrintableMessageContent(text = text, highlighter = highlighter, settings = settings)
+            }
+        }
     }
 }
 
 /** 打印预览：显示真实渲染出的位图（Image），所见即所得；scale 变化时重渲染一次（调用方在松手后才改 scale）。 */
 @Composable
-fun PrintPreview(text: String, scale: Float, modifier: Modifier = Modifier) {
+fun PrintPreview(text: String, scale: Float, modifier: Modifier = Modifier, message: UIMessage? = null) {
     val context = LocalContext.current
     val density = LocalDensity.current
     val settings = LocalSettings.current
@@ -149,10 +159,10 @@ fun PrintPreview(text: String, scale: Float, modifier: Modifier = Modifier) {
     var bmp by remember { mutableStateOf<Bitmap?>(null) }
     var rendering by remember { mutableStateOf(false) }
 
-    LaunchedEffect(text, scale) {
+    LaunchedEffect(text, scale, message) {
         val activity = context.getActivity() ?: return@LaunchedEffect
         rendering = true
-        bmp = runCatching { renderMessageBitmap(scope, activity, density, highlighter, settings, text, scale) }.getOrNull()
+        bmp = runCatching { renderMessageBitmap(scope, activity, density, highlighter, settings, text, scale, message) }.getOrNull()
         rendering = false
     }
 
@@ -193,7 +203,7 @@ fun rememberMessagePrinter(): (UIMessage) -> Unit {
                 toaster.show(message = "无法获取窗口，打印失败", type = ToastType.Error)
                 return@fn
             }
-            val text = message.interactiveUiPrintText().trim()
+            val text = message.toText().trim()
             if (text.isBlank()) {
                 toaster.show(message = "该回复没有可打印的文字", type = ToastType.Warning)
                 return@fn
@@ -201,7 +211,7 @@ fun rememberMessagePrinter(): (UIMessage) -> Unit {
             scope.launch {
                 toaster.show("正在渲染并打印…")
                 runCatching {
-                    val bitmap = renderMessageBitmap(scope, activity, density, highlighter, settings, text, cfg.printFontScale)
+                    val bitmap = renderMessageBitmap(scope, activity, density, highlighter, settings, text, cfg.printFontScale, message)
                     val result = printer.printBitmap(bitmap, grayscale = false, density = cfg.density, feedAfter = cfg.feedAfter)
                     if (!bitmap.isRecycled) bitmap.recycle()
                     result.getOrThrow()
@@ -230,7 +240,7 @@ fun MessagePrintPreviewDialog(
     val highlighter: CodeHighlighter = koinInject()
     val settingsStore: SettingsStore = koinInject()
     val scope = rememberCoroutineScope()
-    val text = remember(message) { message.interactiveUiPrintText().trim() }
+    val text = remember(message) { message.toText().trim() }
 
     val initialScale = settings.displaySetting.paperangPrinter.printFontScale
     var sliderValue by remember { mutableFloatStateOf(initialScale) }
@@ -268,6 +278,7 @@ fun MessagePrintPreviewDialog(
                 )
                 PrintPreview(
                     text = text,
+                    message = message,
                     scale = previewScale,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -310,7 +321,7 @@ fun MessagePrintPreviewDialog(
                                 toaster.show("正在渲染并打印…")
                                 val cfg = settings.displaySetting.paperangPrinter
                                 runCatching {
-                                    val bitmap = renderMessageBitmap(scope, activity, density, highlighter, settings, text, chosenScale)
+                                    val bitmap = renderMessageBitmap(scope, activity, density, highlighter, settings, text, chosenScale, message)
                                     val result = printer.printBitmap(bitmap, grayscale = false, density = cfg.density, feedAfter = cfg.feedAfter)
                                     if (!bitmap.isRecycled) bitmap.recycle()
                                     result.getOrThrow()

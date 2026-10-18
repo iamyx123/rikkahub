@@ -4,9 +4,9 @@ import android.content.Context
 import com.auth0.jwt.JWT
 import com.auth0.jwt.JWTVerifier
 import com.auth0.jwt.algorithms.Algorithm
-import io.ktor.http.auth.HttpAuthHeader
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.auth.HttpAuthHeader
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -35,6 +35,7 @@ import me.rerere.rikkahub.web.routes.conversationRoutes
 import me.rerere.rikkahub.web.routes.eventsRoutes
 import me.rerere.rikkahub.web.routes.filesRoutes
 import me.rerere.rikkahub.web.routes.folderRoutes
+import me.rerere.rikkahub.web.routes.interactiveUiMediaRoutes
 import me.rerere.rikkahub.web.routes.settingsRoutes
 import java.security.MessageDigest
 import java.util.Date
@@ -175,6 +176,7 @@ fun Application.configureWebApi(
                     settingsRoutes(settingsStore)
                     filesRoutes(filesManager, context)
                     assetsRoutes(context)
+                    interactiveUiMediaRoutes()
                 }
             } else {
                 conversationRoutes(chatService, conversationRepo, folderRepo, settingsStore)
@@ -183,6 +185,7 @@ fun Application.configureWebApi(
                 settingsRoutes(settingsStore)
                 filesRoutes(filesManager, context)
                 assetsRoutes(context)
+                interactiveUiMediaRoutes()
             }
         }
     }

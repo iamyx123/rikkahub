@@ -54,6 +54,10 @@ internal fun NativeUiChart(p: JsonObject) {
     val palette = if (LocalSettings.current.displaySetting.disableCursorBlink) listOf(ink, ink.copy(alpha=.75f), ink.copy(alpha=.5f))
         else listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.secondary)
     val type = p.text("type")
+    val xValues = rows.map { (it[p.text("xKey")] as? JsonPrimitive)?.doubleOrNull }
+    val numericX = type == "scatter" && xValues.all { it != null && it.isFinite() }
+    val minX = if(numericX) xValues.filterNotNull().minOrNull() ?: 0.0 else 0.0
+    val xRange = if(numericX) ((xValues.filterNotNull().maxOrNull() ?: 1.0)-minX).coerceAtLeast(.001) else 1.0
     val values = rows.flatMap { row -> series.map { row.number(it) } }
     val low = minOf(0.0, values.minOrNull() ?: 0.0)
     val high = maxOf(0.0, values.maxOrNull() ?: 1.0)
@@ -62,7 +66,7 @@ internal fun NativeUiChart(p: JsonObject) {
         if (p.text("title").isNotBlank()) Text(p.text("title"), style=MaterialTheme.typography.titleSmall)
         if (rows.isEmpty() || series.isEmpty()) Text("暂无图表数据")
         else Canvas(Modifier.fillMaxWidth().height(200.dp)) {
-            fun point(i: Int, v: Double) = Offset(12f + i.toFloat()/maxOf(1,rows.size-1)*(size.width-24f), (size.height-12f-((v-low)/range)*(size.height-24f)).toFloat())
+            fun point(i: Int, v: Double) = Offset(12f + (if(numericX) ((xValues[i]!!-minX)/xRange).toFloat() else i.toFloat()/maxOf(1,rows.size-1))*(size.width-24f), (size.height-12f-((v-low)/range)*(size.height-24f)).toFloat())
             if (type=="pie" || type=="donut") {
                 val total = rows.sumOf { it.number(series.first()).coerceAtLeast(0.0) }
                 var start = -90f
@@ -107,7 +111,7 @@ internal fun NativeUiChart(p: JsonObject) {
 }
 
 @Composable
-internal fun NativeUiVector(p: JsonObject) {
+internal fun NativeUiVector(p: JsonObject, showDescription: Boolean = true) {
     val scheme = MaterialTheme.colorScheme
     val monochrome=LocalSettings.current.displaySetting.disableCursorBlink
     val view=remember(p.text("viewBox")) { p.text("viewBox").split(Regex("[ ,]+")).mapNotNull{it.toFloatOrNull()?.takeIf(Float::isFinite)}.takeIf{it.size==4&&it[2] in 1f..100000f&&it[3] in 1f..100000f} ?: listOf(0f,0f,400f,240f) }
@@ -152,23 +156,9 @@ internal fun NativeUiVector(p: JsonObject) {
             }
             clipRect { scale(size.width/view[2],size.height/view[3],pivot=Offset.Zero){translate(-view[0],-view[1]){p.list("children").forEach{shape(it)}}} }
         }
-        Text(p.text("description"),style=MaterialTheme.typography.bodySmall)
+        if(showDescription && p.text("description").isNotBlank()) Text(p.text("description"),style=MaterialTheme.typography.bodySmall)
     }
 }
 
 @Composable
-internal fun NativeUiMap(p:JsonObject) {
-    val markers=p.list("markers").take(50).mapNotNull{it as? JsonObject}.filter{it.number("lat") in -90.0..90.0&&it.number("lon") in -180.0..180.0}
-    val uri=LocalUriHandler.current
-    val ink=MaterialTheme.colorScheme.onSurface
-    Column {
-        Text(p.text("title","地点坐标概览"),style=MaterialTheme.typography.titleSmall)
-        Canvas(Modifier.fillMaxWidth().height(150.dp)) {
-            drawRect(ink.copy(alpha=.3f),style=Stroke(1f))
-            for(i in 1..3){drawLine(ink.copy(alpha=.15f),Offset(0f,size.height*i/4),Offset(size.width,size.height*i/4),1f)}
-            markers.forEach { drawCircle(ink,5f,Offset(((it.number("lon")+180)/360*size.width).toFloat(),((90-it.number("lat"))/180*size.height).toFloat())) }
-        }
-        Text("坐标概览；点击地点打开地图",style=MaterialTheme.typography.labelSmall)
-        markers.forEach { point -> TextButton(onClick={uri.openUri("geo:${point.number("lat")},${point.number("lon")}?q=${point.number("lat")},${point.number("lon")}")}) { Text("${point.text("label")} (${point.number("lat")}, ${point.number("lon")})") } }
-    }
-}
+internal fun NativeUiMap(p: JsonObject) = NativeUiStreetMap(p)

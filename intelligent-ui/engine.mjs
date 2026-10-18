@@ -17,13 +17,21 @@ component('Grid', { children: children(), columns: number() }, 'Responsive grid,
 component('Box', { children: children(), background: optionalText(), padding: number() }, 'Grouped content; use surface, primary or secondary colors.');
 component('Card', { title: z.string(), children: children() }, 'Material card with a heading and content.');
 component('Form', { children: children() }, 'Input group. Submit with Button and @ToAssistant; all variables accompany it.');
-for (const name of ['Title','Text','Caption','Label','Badge','Markdown','Quote','Code','Math']) {
+component('Carousel', {children:children(),itemWidth:number(),gap:number()}, 'Scrollable cards with previous/next buttons; no auto-scroll.');
+component('Popover', {trigger:z.any(),content:z.any()}, 'Tap the trigger to open details. Both slots accept text or components.');
+for (const name of ['Title','Caption','Label','Badge','Markdown','Quote','Code','Math']) {
   component(name, { text: z.string() }, name === 'Math' ? 'LaTeX formula, no delimiters.' : 'Text content; keep Chinese labels concise.');
 }
+component('Text',{text:z.union([z.string(),children()])},'Text or inline components (Link, Icon, Math); text supports Markdown emphasis.');
+component('Link',{text:z.string(),url:z.string()},'A user-clicked HTTP(S) link.');
 component('Divider', {}, 'Section separator.');
 component('Spacer', { size: number() }, 'Vertical space in dp, max 48.');
-component('List', { items: z.array(z.any()) }, 'List of strings or components.');
+component('List', { items: z.array(z.any()),variant:optionalText() }, 'List of strings or ListItem components. variant bullets, numbers or timeline.');
+component('ListItem',{content:z.any(),label:optionalText()},'List entry, optional timeline label; content is text or a component.');
 component('Button', { label: z.string(), action: action(), variant: optionalText() }, 'User-triggered action. variant filled, tonal, or text.');
+component('IconButton',{icon:z.string(),action:action(),label:z.string()},'Accessible icon button with a required descriptive label.');
+component('Pressable',{children:children(),action:action(),label:optionalText()},'Clickable container; do not nest other buttons or inputs inside it.');
+component('Icon',{name:z.string(),size:number(),label:optionalText()},'A bundled Lucide icon by kebab-case name, default size 24. No network request.');
 for (const name of ['Input','TextArea','NumberInput']) {
   component(name, { value: bound(), label: z.string(), placeholder: optionalText() }, 'Editable $variable. NumberInput writes a number; other inputs write text.');
 }
@@ -33,13 +41,17 @@ for (const name of ['Select','RadioGroup','SegmentedControl']) {
   component(name, { value: bound(), options: z.array(z.string()), label: optionalText() }, 'Choose a string value from options.');
 }
 component('DatePicker', { value: bound(), label: z.string() }, 'ISO yyyy-MM-dd date input.');
+component('Timer',{seconds:bound(),label:optionalText()},'User-started countdown with pause and reset. On e-ink the running display stays static until completion; updates the bound seconds on pause/reset/completion.');
 component('Progress', { value: z.number(), max: z.number().optional(), label: optionalText() }, 'Static progress with value label; no animation.');
-component('Flashcard', { front: z.string(), back: z.string() }, 'Tap to reveal the answer, no flip animation.');
+component('Flashcard', { front: z.any(), back: z.any() }, 'Tap to reveal the answer; sides accept text or components. No flip animation.');
+component('Celebration',{when:z.boolean(),message:optionalText()},'Static success confirmation when the condition becomes true; no confetti or animation.');
 component('Accordion', { title: z.string(), children: children() }, 'Expandable details.');
 component('Table', { columns: z.array(z.string()), rows: z.array(z.array(z.any())) }, 'Data table, max 100 rows; cells may contain components.');
 component('Chart', { type: z.enum(['line','bar','scatter','area','pie','donut']), data: z.array(z.record(z.string(),z.any())), xKey: z.string(), series: z.array(z.string()), title: optionalText() }, 'Native static chart. Rows contain xKey labels and named numeric series; max 200 points.');
 component('Image', { url: z.string(), alt: z.string() }, 'HTTPS image with a meaningful description. No video, iframe or HTML.');
-component('Map', { markers: z.array(z.object({lat:z.number(),lon:z.number(),label:z.string()})), title: optionalText() }, 'Native coordinate overview with numbered places. No street tiles or navigation claims; opens maps on tap.');
+component('SearchImage',{query:z.string(),alt:optionalText()},'User-triggered Wikipedia/Wikimedia photo search with source attribution; never searches before a click.');
+component('Map', { markers: z.array(z.any()), title: optionalText() }, 'Interactive map; markers are MapMarker components or {lat,lon,label,category} objects. Street tiles and road overview load only on click. Category filters, zoom and expansion; no live navigation.');
+component('MapMarker',{lat:z.number(),lon:z.number(),label:z.string(),category:optionalText()},'A map location, optionally grouped by category. Use inside Map markers.');
 component('Svg', { viewBox: z.string(), children: children(), description: z.string() }, 'Native vector diagram. viewBox: "0 0 400 240". No scripts, animations or external resources.');
 component('G', { children: children() }, 'Group vector shapes.');
 for (const [name, geometry] of Object.entries({Circle:['cx','cy','r'],Ellipse:['cx','cy','rx','ry'],Rect:['x','y','width','height'],Line:['x1','y1','x2','y2']})) {
@@ -52,13 +64,13 @@ const copy = defineAction({name:'CopyToClipboard',description:'Copy text only af
 export const library = createLibrary({id:'rikkahub-native-1',root:'Col',components,functions,actions:[copy]});
 export const promptOptions = {
   inlineMode:true, bindings:true, builtinFunctions:true, toolCalls:false, editMode:false,
-  preamble:'You are chatting inside RikkaHub. Use ordinary readable Markdown for explanations. When an interactive answer helps, add a complete fenced openui-lang block using this native component library. Include a short text explanation before it. Keep the user\'s language. Never use HTML, JavaScript, YouTube, video, Query, Mutation, @Run, autoplay or animation. Other enabled chat tools remain available outside the UI program.',
+  preamble:'You are chatting inside RikkaHub. Use ordinary readable Markdown for explanations. When an interactive answer helps, add a complete fenced openui-lang block using this native component library. Include a short text explanation before it. Keep the user\'s language. Never use HTML, JavaScript, YouTube, video, Query, Mutation, @Run, autoplay or decorative animation. Other enabled chat tools remain available outside the UI program.',
   additionalRules:[
     'Use interactive UI only when useful, not for every reply. Never put the whole answer only in UI; include readable text for export and fallback.',
     'Use $variables for all editable state. Inputs update locally without a model call. Button actions happen only on tap. @ToAssistant drafts a follow-up for the user to review.',
     'Use the exact listed component signatures. Maximum 300 elements, 100 table rows, 200 chart points, 24 levels, and 32 state variables. Avoid huge @Range and deeply nested expressions.',
-    'Map is a coordinate overview, not a street map or directions. Images require trustworthy HTTPS URLs; omit an image rather than invent a URL.',
-    'No timer-driven UI, JavaScript, arbitrary HTML, embedded websites, automatic network requests or tools. Prefer static vector diagrams, charts, math and local controls.',
+    'Map loads street tiles and a driving-road overview only after a click; it is not walking/transit guidance. Image requires a trustworthy HTTPS URL; use SearchImage when a photo must be found.',
+    'Only Timer may count down after a user starts it. No JavaScript, arbitrary HTML, embedded websites, automatic network requests or tools. Prefer static vector diagrams, charts, math and local controls.',
   ],
   examples:[`$amount = 10\n$price = 3\nroot = Col([Title("费用计算"),NumberInput($amount,"数量"),Slider($price,1,20,1,"单价"),Text("合计：" + @Format($amount * $price,"number",2)),Button("重置",@Reset($amount,$price))])`,
     `$answer = ""\nroot = Col([Title("复习卡"),Flashcard("牛顿第二定律？","F = ma"),RadioGroup($answer,["F = ma","F = mv"],"选择正确公式"),Text($answer == "" ? "请选择答案" : ($answer == "F = ma" ? "回答正确" : "再想一想"))])`],
