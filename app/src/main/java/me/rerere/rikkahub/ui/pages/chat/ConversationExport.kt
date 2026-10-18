@@ -739,7 +739,7 @@ private fun ExportedChatMessage(
             )
         }
     }
-    messageContent()
+    me.rerere.rikkahub.ui.components.intelligentui.ProvideInteractiveUiExport(message) { messageContent() }
 }
 
 @Composable

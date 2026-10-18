@@ -191,6 +191,10 @@ class ChatVM(
         }
     }
 
+    fun setInteractiveUiEnabled(enabled: Boolean) {
+        viewModelScope.launch { runCatching { chatService.setInteractiveUiEnabled(_conversationId, enabled) }.onFailure { chatService.addError(it, title = "切换交互 UI 失败") } }
+    }
+
     // 新会话开始前归入抽屉里选中的文件夹
     suspend fun updateDraftFolder(folderId: Uuid?) {
         chatService.updateDraftConversationFolder(_conversationId, folderId)

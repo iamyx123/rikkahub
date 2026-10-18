@@ -1,85 +1,43 @@
-# Open Intelligent UI 接入评估
+# Open Intelligent UI 原生适配（2026-10-18 开始，10-19 完成实现）
 
-评估日期：2026-10-18。RikkaHub 基线：上游 `07b1238a`（3.0.0 标签及之后 3 个提交）。Open Intelligent UI 源码基线：`03213439358bf3408ad61a46ec9e3230c5572e48`。本文是实施规划，3.0.0 定制 APK 尚未加入这个功能。
+此文记录最终实现，替代早期 WebView 方案。Android 使用 Compose 原生控件和项目已有 QuickJS；不新增 WebView。网页端使用同一解析引擎，在按需启动的 Web Worker 内计算，并渲染普通 React/DOM 控件。
 
-## 结论
+## 会话开关与请求缓存
 
-可以添加。建议保留 RikkaHub 的原生聊天、模型配置和会话存储，在消息中增加“交互卡片”渲染能力。首选 `@openuidev/react-lang` 的 Renderer 与裁剪后的组件库：现有 Web 前端直接接入，Android 把同一套静态渲染资源打进 APK，用专用 WebView 展示。手机不需要运行 Next.js/Node 服务，也不必使用 Thesys 云或新增模型账号。
+聊天输入栏增加“交互 UI”，默认关闭，属于 ConversationConfig，不属于助手全局设置。新会话的选择随首条消息落库；已存在会话立即保存。生成期间禁用切换。关闭后已有卡片仍展示并可操作。
 
-适合先做学习用途：可调参数的物理/数学演示、计算器、选择题、翻卡复习、可勾选计划、表格和静态图表。地图、联网图片搜索、YouTube、任意 HTML/JS 和游戏放在后续阶段；这些功能会增加联网、资源占用和墨水屏适配工作。
+发送新用户消息时，读取此前实际发送的模式，只有变化才生成不可变的切换提醒，保存到该 UIMessage 的 interactiveUiDirective；interactiveUiMode 记录该轮模式。没有新消息时反复切换不会增加提醒。构建请求时，在该用户轮的最前面加入保存的提醒，不修改首条 system prompt，不随软件升级重写旧提醒。Google/Claude 的现有适配会过滤中途 SYSTEM 角色，所以使用用户轮中的应用提醒文本，保证各服务商都能接收且位置不变。上下文裁剪或压缩检查点丢失先前提醒时，在保留的首个用户轮补入最近的原始提醒；裁剪本身仍会改变请求前缀。
 
-接入可行性来自源码和架构核对，尚未进行依赖安装、Android WebView 实测、真实模型生成或体积/性能测量。
+这些改动保持正常连续请求的已有前缀；缓存是否命中、计费和保留时长仍由服务商决定。首次开启附加约 22,409 字符的组件协议，关闭的会话不注入该协议。
 
-## 已核对的依据
+## 组件与操作
 
-| 项目事实 | 对本项目的影响 |
-| --- | --- |
-| 示例项目为 Next.js 16、React 19，要求 Node 24；MIT 许可 | 可复用组件和样式，但不能直接作为 Compose 控件添加。复制源码时保留版权和许可说明，并核查实际引入的依赖许可。 |
-| RikkaHub 的 `web-ui` 已使用 React 19、Vite、Zod 4 | 与 react-lang 文档中的 React >=19、Zod 3.25/4 要求匹配，仍需锁定依赖并实测构建。 |
-| Renderer 接受 `response`、`isStreaming`、`initialState`，提供 `onStateUpdate`、`onAction` 和 `onError` | 可以接入现有消息流，不需要替换整个聊天界面或使用示例的 AgentInterface。 |
-| OpenUI Lang 使用组件、变量和函数表达交互界面 | 普通聊天模型需收到对应组件说明和输出协议；安装前端包不会自动让所有回答变成交互界面。 |
-| 示例支持直接调用 OpenAI 兼容 Chat Completions，也支持 Ollama | 可复用 RikkaHub 当前服务商。直接调用路径没有 OpenUI Cloud 的输出校正，需验证模型遵循格式的能力并保留文本回退。 |
-| 示例完整提示词约 8,000 tokens（README 自述） | 不宜默认加到所有聊天；首期裁剪组件，按助手/会话启用，并实测实际 token 开销。 |
-| 示例使用 localStorage，最多保留 50 个会话，存储失败可静默忽略 | 不采用这套会话存储；沿用 RikkaHub 的 ConversationSession、Room 和备份链路。 |
-| 地图、照片依赖 `/api/street-route`、`/api/wiki`、`/api/image-search` | 复制前端组件不能让这些功能直接可用；需要单独的服务适配、缓存和失败显示。 |
-| 示例 HtmlView 使用允许脚本的 iframe，并允许指定 CDN 和 HTTPS 图片 | 其“沙箱”不等于完全离线或无外部请求；首期不开放 HtmlView。 |
+固定 @openuidev/lang-core 1.0.1、Zod 4.4.3，适配 open-intelligent-ui 提交 03213439358bf3408ad61a46ec9e3230c5572e48 的函数库。构建入口 intelligent-ui/build.mjs，npm ci 后执行 npm run build；提交生成的 assets，正常 Gradle 构建无需重新安装这套依赖。
 
-## 推荐设计
+支持 46 个组件、59 个本地函数：布局、卡片、文字/Markdown/LaTeX、输入框、数值、滑杆、勾选和选择、日期、进度、问答翻卡、折叠区、表格、折线/柱状/散点/面积/饼/环图、SVG 图形、图片及地点坐标概览。Android 图表同时提供数值，适合单色屏。Map 提供坐标概览及外部地图入口，没有街道瓦片和路线服务。Image 在点击后加载，Android 限制解码尺寸为 1024×1024，使用静态位图解码；网页墨水屏提供外部图片入口，避免 GIF 动画。
 
-### 消息与模型
+@Set/@Reset 在本地更新状态；@ToAssistant 把文字和变量放入输入框，由用户检查并发送；@OpenUrl/@CopyToClipboard 只有点击后执行。没有 YouTube、音视频、HTML、iframe、脚本、自动工具查询或自动调用 MCP。原有聊天工具调用仍由原来的聊天链路处理。
 
-新增默认关闭的“交互回答”设置，遵守 3.0.0 已有的会话配置快照规则。启用后，在现有请求工厂中追加由固定组件库生成的提示词；模型、思考深度、附件、工具调用和取消逻辑继续走现有 AI 层。不要复制示例 `/api/chat`，它只保留 user/assistant 文本，会丢弃附件和工具信息。
+## 开销与边界
 
-第一版使用有明确语言标记的 `openui` 代码块，旁边保留可读的文字说明。只有标记明确的块进入 Renderer，普通 Markdown 不作猜测。组件库版本、语言版本和提示词一起锁定。解析失败、未知组件、超限输出、生成被取消时显示说明与源码，不让整条回复空白，也不自动无限重试模型请求。
+Android 进程最多保留一个串行 QuickJS 运行时，初始化超时 2 秒，单次求值 600 毫秒，堆上限 32 MiB，栈上限 512 KiB，闲置 15 秒释放。代码块及回复完成后才解析；输入防抖 150 毫秒，操作排队。模型文本经过 JSON 编码传入固定解析器，不作为 JavaScript 执行，没有注入网络、文件或 Android 宿主接口。
 
-Web 端可渐进渲染。墨水屏默认等代码块闭合后再展示，点击修改变量时局部刷新；生成中仅在卡片入口显示进度。不要每个 token 重建 WebView。
+源码上限 64 KiB 字符、单块变量状态 32 KiB 字符、32 个变量、300 个组件、24 层嵌套、输出 256 KiB 字符；每条消息最多保存 16 个不同源码块的状态，总计 128 KiB 字符。网页 Worker 有 2 秒运行超时和 15 秒闲置释放，但没有浏览器内存硬限额。引擎文件约 431 KiB，文件大小不是运行内存。
 
-### Android 与 Web 共用渲染层
+本机 QuickJS/JVM 初次测量：初始化 69 ms，22 次小卡片渲染/更新合计 13 ms；引擎报告 memoryUsedSize 5,743,951 bytes、mallocSize 9,378,071 bytes。最终复测见发布 verification/测试 XML。此数字不包含 Compose、图片缓存和整机应用内存，不能代替墨水屏真机测量。
 
-新建独立的静态 renderer 构建入口，输出本地 HTML/JS/CSS，并打进 Android assets；Web 端复用组件库和解析协议。使用独立的资源入口和受控消息通道。现有 WebView 工具可以参考，但不能直接沿用它面向一般网页的权限设置。
+## 保存、导出与墨水屏
 
-Android 消息内先显示摘要及“打开交互卡片”，点击进入单个可复用的全屏/大面板 WebView。确认低端实机的滚动、输入法、返回键和内存表现后，再考虑内嵌卡片；避免长对话为每条消息常驻一个 WebView。
+状态存于 UIMessage.interactiveUiStates，键为去除末尾空白后的源码 SHA-256，所属会话和消息 ID 由 ChatService 验证。只接受助手消息内的完整 OpenUI fenced block，已删除或更改的消息不会被重建。使用 ConversationSession 最新状态更新与 flush，不写回旧会话快照；网页使用同一 API 和服务端状态，不把 localStorage 当权威存储。原始消息正文不会因交互变量变化而改写，因此不破坏已有模型请求前缀。
 
-桥接只接受带版本、会话 ID、消息 ID、块 ID、请求序号的类型化数据。模型输出与用户输入通过 JSON 编码传递，禁止拼接可执行脚本。关闭文件和 content URI 访问；只让可信本地页面访问有限桥接接口。首期不绑定 Query/Mutation/MCP toolProvider，不提供任意 Android、Root、文件、打印或网络调用。
+墨水屏沿用项目 disableCursorBlink 设置：思考区显示“正在思考/思考完成”，停止原来的 50 ms 读秒循环，取消标题滚动闪光，思考预览采用直接滚动；全局 shimmer 在此模式下停用。卡片禁用 ripple，数值滑杆改为加减按钮，开关/选择使用静态控件，矢量图和图表无动画。普通屏保留原有思考计时行为。
 
-`@Set` 等纯本地交互在渲染器内完成。`@ToAssistant` 转成可见的聊天输入或一次明确的发送操作，并复用当前会话的生成状态和重复提交保护；加载历史消息不能自动发送。打开链接仅接受经检查的 http(s) 地址，剪贴板动作只在用户点击时执行。
+Markdown 导出保留正文与源码；Android 图片/打印导出提供保存变量和源码的同步静态记录，当前没有把交互控件全部转换成图表截图。备份和恢复通过新增可选 JSON 字段保留模式、提醒和状态；不引入数据库列迁移。不要用旧 APK 直接降级覆盖新版数据库。
 
-### 状态、备份和旧版本
+## 验证
 
-保存原始 OpenUI 源码、渲染器协议版本和用户变量状态。状态按 `conversationId/messageId/blockId` 关联，并用源码摘要防止编辑或重新生成后误套旧状态；分支消息保持独立。状态写入通过 ChatService/ConversationSession 的最新内存状态完成，不保存旧会话快照。
+node --test intelligent-ui/test.mjs 覆盖输入、重置、动作、函数、图形 schema、错误和资源边界。JVM 测试覆盖请求前缀、上下文裁剪、序列化、分支编辑、无效状态和真实 QuickJS 超时。网页类型检查及本地浏览器组件验收验证费用计算、翻卡、图表与重置；该页面使用测试保存接口，不等同手机 HTTP 服务实测。
 
-落库前确定可向后兼容的存储方案：首选独立的、可忽略的状态记录与版本字段，或验证过旧读取器容错能力的可选字段。不要直接新增旧客户端无法反序列化的密封 MessagePart。必须覆盖清空、删除、重命名、切换分支、重新生成、备份恢复和跨端访问的状态一致性。
+最终还运行全部模块 JVM 测试、Android 测试源码编译、Lint 和优化 APK 构建。未用模拟器，未安装设备，未验证真实模型遵循格式、墨水屏物理刷新和低端设备内存峰值。未知组件/解析失败显示错误和源码，回复不丢失。
 
-普通导出保留文字说明与 OpenUI 源码。打印/图片导出应把当前卡片转成静态结果或可读摘要，不能只打印“打开卡片”按钮；是否具备可靠截图能力是发布前验收项。
-
-### 墨水屏与界面
-
-沿用应用字体大小、明暗主题与 Material 3 Expressive 的外部入口。墨水屏模式取消转场、闪烁光标、图表补间、自动轮播、翻卡动画和粒子效果；表格/图表提供文字标签和线型区分，不能只靠颜色。控件需要适合触摸的大点击区，错误和进度留在当前卡片内。
-
-## 实施顺序与验收
-
-1. **离线渲染验证**：锁定 react-lang/lang-core 1.x 的确切版本；实现布局、文字、表格、按钮、输入、选择、滑块和基础计算函数。用固定样例覆盖计算器、选择题、可勾选计划和参数图表；验证不联网可用、解析错误可回退、中文和窄屏显示。此步无需模型密钥。
-2. **Android 容器与状态**：打包静态资源，加入专用 WebView 和严格桥接，接入本地状态与备份。实机检查墨水屏静态显示、输入法、旋转/重建、后台恢复、连续打开关闭和内存占用；恶意 URL、重复事件、超大输入和历史重放不能越过边界。
-3. **接入现有模型**：按会话启用，在现有生成链路中追加裁剪提示词，支持流式/取消/重试与普通文字混排。用用户当前实际服务商和模型验证 OpenUI 语法、函数、中文、思考分离以及附件/工具多轮对话；记录成功率、首屏耗时和输入输出 token。不能仅凭模型支持 Chat Completions 宣称兼容。
-4. **发布实验功能**：完成跨端状态、分支、备份恢复及打印/导出回归，保留一键回到文字模式。先作为可关闭的实验选项发布，再决定是否增加内嵌展示、静态 SVG、地图和联网图片。
-
-前两步验证通过才值得做模型接入。若目标设备 WebView 过旧、卡顿或打印失真，先只发布 Web 端功能，并保留 Android 文字回退。完全改写为 Compose 也可行，但要长期维护 OpenUI 解析器、表达式运行时和组件映射，当前不建议作为首选。
-
-## 对应代码入口
-
-- Android 代码块：`app/src/main/java/me/rerere/rikkahub/ui/components/richtext/Markdown.kt` 的 `MarkdownComponents.codeBlock`。
-- Web 代码块：`web-ui/app/components/markdown/markdown.tsx` 与 `code-block.tsx`。
-- 现有本地 Web 资源：`ui/src/main/java/me/rerere/ui/webview/WebViewLocalAssets.kt`；专用交互容器需另外限定请求范围和桥接权限。
-- 消息与状态：`ai/src/main/java/me/rerere/ai/ui/Message.kt`、`app/.../data/model/ConversationConfig.kt`、`app/.../service/ConversationSession.kt` 和 `ChatService.kt`。
-- 请求构造：`app/src/main/java/me/rerere/rikkahub/data/ai/ChatRequestFactory.kt`。
-
-## 上游资料
-
-- [示例 README](https://github.com/thesysdev/open-intelligent-ui/blob/03213439358bf3408ad61a46ec9e3230c5572e48/README.md)
-- [版本与依赖](https://github.com/thesysdev/open-intelligent-ui/blob/03213439358bf3408ad61a46ec9e3230c5572e48/package.json)
-- [组件库](https://github.com/thesysdev/open-intelligent-ui/blob/03213439358bf3408ad61a46ec9e3230c5572e48/src/lib/library.ts)
-- [模型调用与协议转换](https://github.com/thesysdev/open-intelligent-ui/blob/03213439358bf3408ad61a46ec9e3230c5572e48/src/app/api/chat/route.ts)
-- [示例状态存储](https://github.com/thesysdev/open-intelligent-ui/blob/03213439358bf3408ad61a46ec9e3230c5572e48/src/lib/chat-storage.tsx)
-- [HtmlView 边界](https://github.com/thesysdev/open-intelligent-ui/blob/03213439358bf3408ad61a46ec9e3230c5572e48/src/lib/components/html-view.tsx)
-- [MIT 许可](https://github.com/thesysdev/open-intelligent-ui/blob/03213439358bf3408ad61a46ec9e3230c5572e48/LICENSE)
-- [React Renderer 文档](https://github.com/thesysdev/openui/blob/main/packages/react-lang/README.md)（当前默认分支，实施时须按锁定版本复核）。
+MIT 版权和许可完整保留在 app/assets 与 web/public 的 intelligent-ui/NOTICE.txt，包括上游函数库、OpenUI Lang Core、Zod。

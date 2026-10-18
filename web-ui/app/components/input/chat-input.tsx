@@ -42,6 +42,8 @@ export interface ChatInputProps {
   attachments: UIMessagePart[];
   suggestions?: string[];
   conversation?: ConversationDto | null;
+  interactiveUiEnabled?: boolean;
+  onInteractiveUiChange?: (enabled:boolean)=>Promise<void>;
   ready?: boolean;
   disabled?: boolean;
   isGenerating?: boolean;
@@ -178,6 +180,8 @@ function ChatInputInner({
   attachments,
   suggestions = [],
   conversation = null,
+  interactiveUiEnabled = false,
+  onInteractiveUiChange,
   ready = true,
   disabled = false,
   isGenerating = false,
@@ -699,6 +703,7 @@ function ChatInputInner({
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
+              <Button type="button" size="sm" variant={interactiveUiEnabled?"secondary":"ghost"} aria-pressed={interactiveUiEnabled} disabled={isGenerating||disabled} onClick={()=>{onInteractiveUiChange?.(!interactiveUiEnabled).catch(()=>toast.error("切换失败，请重试"));}} title="仅影响后续新消息，历史卡片保留">{interactiveUiEnabled?"交互 UI · 开":"交互 UI"}</Button>
               <SearchPickerButton disabled={!canSwitchModel} conversation={conversation} />
               <McpPickerButton disabled={!canSwitchModel} conversation={conversation} />
               <ExtensionPickerButton

@@ -687,3 +687,5 @@
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
+
+[data-eink="true"] *, [data-eink="true"] *::before, [data-eink="true"] *::after { animation: none !important; transition: none !important; }

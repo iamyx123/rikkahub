@@ -43,7 +43,7 @@ fun Modifier.shimmer(
     angle: Float = 20f, // 稍微倾斜的角度
     gradientWidthRatio: Float = 0.5f // 闪光宽度为组件宽度的一半
 ): Modifier = composed { // 使用 composed 以便在 Modifier 内部使用 remember 和 LaunchedEffect 等
-    if (!isLoading) {
+    if (!isLoading || me.rerere.rikkahub.ui.context.LocalSettings.current.displaySetting.disableCursorBlink) {
         // 如果不处于加载状态，则不应用任何效果
         this
     } else {

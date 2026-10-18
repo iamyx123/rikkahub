@@ -39,6 +39,8 @@ internal fun Conversation.editMessage(messageId: Uuid, parts: List<UIMessagePart
             // 编辑的是原消息的内容，来源仍是生成它的模型
             modelId = original.modelId,
             modelSnapshot = original.modelSnapshot,
+            interactiveUiMode = original.interactiveUiMode,
+            interactiveUiDirective = original.interactiveUiDirective,
         )
     }
     return upsertMessage(node.id, edited)
@@ -70,7 +72,9 @@ internal fun Conversation.withNodeFavorite(nodeId: Uuid, favorite: Boolean): Con
 internal fun Conversation.withToolApproval(toolCallId: String, approvalState: ToolApprovalState): Conversation? {
     if (currentMessages.none { message ->
             message.getTools().any { it.toolCallId == toolCallId && it.isPending }
-        }) return null
+        }) {
+        return null
+    }
     return copy(
         messageNodes = messageNodes.map { node ->
             node.copy(messages = node.messages.map { message ->

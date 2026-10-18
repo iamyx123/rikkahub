@@ -116,6 +116,8 @@ fun ChatMessage(
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onQuote: (String) -> Unit = {},
+    conversationId: kotlin.uuid.Uuid? = null,
+    onInteractiveDraft: (String) -> Unit = {},
 ) {
     val message = node.messages[node.selectIndex]
     if (message.isContextCheckpoint) {
@@ -169,6 +171,9 @@ fun ChatMessage(
                 )
             }
         }
+        me.rerere.rikkahub.ui.components.intelligentui.ProvideInteractiveUi(
+            conversationId, message, !loading, onInteractiveDraft,
+        ) {
         ProvideTextStyle(textStyle) {
             MessagePartsBlock(
                 assistant = assistant,
@@ -189,6 +194,8 @@ fun ChatMessage(
                     onClickCitation = {}
                 )
             }
+        }
+
         }
 
         val showActions = if (lastMessage) {

@@ -471,6 +471,7 @@ function useDraftInputController({
     [draftKey, removeDraftPart],
   );
 
+  const [draftInteractiveUi, setDraftInteractiveUi] = React.useState<Record<string,boolean>>({});
   const handleSubmit = React.useCallback(async () => {
     if (!draftKey) return;
 
@@ -489,6 +490,7 @@ function useDraftInputController({
     await api.post<{ status: string }>(`conversations/${conversationId}/messages`, {
       parts,
       folderId,
+      enableInteractiveUi: draftInteractiveUi[draftKey] ?? false,
     });
     clearDraft(draftKey);
 
@@ -500,6 +502,7 @@ function useDraftInputController({
     draftKey,
     folderId,
     getSubmitParts,
+    draftInteractiveUi,
     navigate,
     refreshList,
     setHomeDraftId,
@@ -526,6 +529,8 @@ function useDraftInputController({
   }, [draftKey, getSubmitParts]);
 
   return {
+    draftInteractiveUi,
+    setDraftInteractiveUi,
     draftKey,
     inputText,
     inputAttachments,
@@ -644,6 +649,7 @@ const ConversationTimeline = React.memo(
                   className="scroll-mt-24"
                 >
                   <ChatMessage
+                    conversationId={activeId}
                     node={node}
                     message={message}
                     loading={isGenerating && index === selectedNodeMessages.length - 1}
@@ -662,7 +668,7 @@ const ConversationTimeline = React.memo(
             })}
           {!detailLoading && !detailError && activeId && isGenerating && (
             <div className="flex items-start py-2">
-              <TypingIndicator className="px-1 py-2" />
+              {settings?.displaySetting?.disableCursorBlink === true ? <span>正在思考</span> : <TypingIndicator className="px-1 py-2" />}
             </div>
           )}
         </ConversationContent>
@@ -746,6 +752,8 @@ function ConversationsPageInner() {
   const { currentModel, currentProvider } = useCurrentModel(detail);
 
   const {
+    draftInteractiveUi,
+    setDraftInteractiveUi,
     draftKey,
     inputText,
     inputAttachments,
@@ -1086,6 +1094,11 @@ function ConversationsPageInner() {
           value={inputText}
           attachments={inputAttachments}
           conversation={detail}
+          interactiveUiEnabled={detail?.config?.enableInteractiveUi ?? draftInteractiveUi[draftKey ?? ""] ?? false}
+          onInteractiveUiChange={async (enabled) => {
+            if (activeId) await api.post(`conversations/${activeId}/config`, {enableInteractiveUi: enabled});
+            else if (draftKey) setDraftInteractiveUi(previous => ({...previous, [draftKey]: enabled}));
+          }}
           ready={draftKey !== null}
           isGenerating={detail?.isGenerating ?? false}
           disabled={detailLoading || Boolean(detailError)}

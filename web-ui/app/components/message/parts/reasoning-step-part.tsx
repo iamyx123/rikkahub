@@ -43,11 +43,12 @@ export function ReasoningStepPart({ reasoning, collapsedAdaptiveWidth = false, i
   const loading = reasoning.finishedAt == null;
   const { t } = useTranslation("message");
   const displaySetting = useSettingsStore((state) => state.settings?.displaySetting);
+  const eink = displaySetting?.disableCursorBlink === true;
   const [expandState, setExpandState] = React.useState<ReasoningCardState>(
     ReasoningCardState.Collapsed,
   );
   const contentRef = React.useRef<HTMLDivElement>(null);
-  const thinkingTitle = React.useMemo(() => extractThinkingTitle(reasoning.reasoning), [reasoning.reasoning]);
+  const thinkingTitle = React.useMemo(() => eink ? null : extractThinkingTitle(reasoning.reasoning), [reasoning.reasoning,eink]);
   const showThinkingTitle = loading && thinkingTitle != null;
 
   React.useEffect(() => {
@@ -89,17 +90,17 @@ export function ReasoningStepPart({ reasoning, collapsedAdaptiveWidth = false, i
 
   React.useEffect(() => {
     setDuration(formatDuration(reasoning.createdAt, reasoning.finishedAt));
-    if (!loading) return;
+    if (!loading || eink) return;
     const id = setInterval(() => {
       setDuration(formatDuration(reasoning.createdAt, reasoning.finishedAt));
     }, 100);
     return () => clearInterval(id);
-  }, [loading, reasoning.createdAt, reasoning.finishedAt]);
+  }, [loading, reasoning.createdAt, reasoning.finishedAt,eink]);
 
   const preview = expandState === ReasoningCardState.Preview;
 
   return (
-    <div data-part="reasoning" data-reasoning-loading={loading || undefined}>
+    <div data-eink={eink ? "true" : undefined} data-part="reasoning" data-reasoning-loading={loading || undefined}>
       <ControlledChainOfThoughtStep
         expanded={expandState === ReasoningCardState.Expanded}
         onExpandedChange={onExpandedChange}
@@ -107,7 +108,7 @@ export function ReasoningStepPart({ reasoning, collapsedAdaptiveWidth = false, i
         isFirst={isFirst}
         isLast={isLast}
         icon={
-          loading ? (
+          loading && !eink ? (
             <Sparkles className="h-4 w-4 animate-pulse text-primary" />
           ) : (
             <Think className="h-4 w-4 text-primary" />
@@ -115,7 +116,7 @@ export function ReasoningStepPart({ reasoning, collapsedAdaptiveWidth = false, i
         }
         label={
           <span className="text-foreground text-xs font-medium">
-            {showThinkingTitle
+            {eink ? (loading ? "正在思考" : "思考完成") : showThinkingTitle
               ? thinkingTitle
               : duration !== null
                 ? t("message_parts.thinking_seconds", { seconds: duration.toFixed(1) })
@@ -123,7 +124,7 @@ export function ReasoningStepPart({ reasoning, collapsedAdaptiveWidth = false, i
           </span>
         }
         extra={
-          showThinkingTitle && duration !== null
+          !eink && showThinkingTitle && duration !== null
             ? <span className="text-muted-foreground text-xs">{duration.toFixed(1)}s</span>
             : undefined
         }

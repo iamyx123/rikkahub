@@ -486,6 +486,8 @@ private fun ChatPageContent(
                 val messageQueue by vm.messageQueue.collectAsStateWithLifecycle()
                 val voiceState by vm.voiceSession.state.collectAsStateWithLifecycle()
                 ChatInput(
+                    interactiveUiEnabled = conversation.config?.enableInteractiveUi == true,
+                    onInteractiveUiEnabledChange = vm::setInteractiveUiEnabled,
                     onStartVoiceMode = onStartVoiceMode,
                     voiceState = voiceState,
                     onStopVoiceMode = vm.voiceSession::stop,
@@ -561,6 +563,11 @@ private fun ChatPageContent(
             containerColor = Color.Transparent,
         ) { innerPadding ->
             ChatList(
+                onInteractiveDraft = { text ->
+                    inputState.editingMessage = null
+                    inputState.appendText(text)
+                    inputState.requestInputFocus()
+                },
                 innerPadding = innerPadding,
                 conversation = conversation,
                 state = chatListState,

@@ -15,6 +15,7 @@ export interface MessageNode {
  * @see app/src/main/java/me/rerere/rikkahub/data/model/ConversationConfig.kt - ConversationConfig
  */
 export interface ConversationConfig {
+  enableInteractiveUi?: boolean;
   chatModelId?: string | null;
   reasoningLevel?: string | null;
   enableWebSearch?: boolean;

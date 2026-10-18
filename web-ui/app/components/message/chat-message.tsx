@@ -1,3 +1,4 @@
+import { InteractiveMessage } from "~/components/intelligent-ui/interactive-ui";
 import * as React from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -48,6 +49,7 @@ import { MessageParts } from "./message-part";
 interface ChatMessageProps {
   node: MessageNodeDto;
   message: MessageDto;
+  conversationId?: string | null;
   loading?: boolean;
   isLastMessage?: boolean;
   assistant?: AssistantProfile | null;
@@ -610,6 +612,7 @@ const ChatMessageContextCheckpoint = React.memo(({
 });
 
 export const ChatMessage = React.memo(({
+  conversationId,
   node,
   message,
   loading = false,
@@ -663,12 +666,14 @@ export const ChatMessage = React.memo(({
               isUser ? "max-w-[85%] rounded-lg bg-muted px-4 py-3" : "w-full",
             )}
           >
+            <InteractiveMessage.Provider value={conversationId ? {conversationId, message, loading} : null}>
             <MessageParts
               parts={message.parts}
               loading={loading}
               onToolApproval={onToolApproval}
               onClickCitation={handleClickCitation}
             />
+            </InteractiveMessage.Provider>
           </div>
         </div>
       </div>

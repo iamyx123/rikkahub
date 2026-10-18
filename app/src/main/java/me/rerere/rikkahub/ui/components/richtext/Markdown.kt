@@ -156,7 +156,11 @@ fun MarkdownBlock(
     val components = remember(enableLatexRendering, exporting) {
         MarkdownComponents(
             codeBlock = { block ->
-                HighlightCodeBlock(
+                if (exporting && block.language in setOf("openui", "openui-lang")) {
+                    me.rerere.rikkahub.ui.components.intelligentui.InteractiveUiExport(block.code)
+                } else if (block.language in setOf("openui", "openui-lang")) {
+                    me.rerere.rikkahub.ui.components.intelligentui.InteractiveUiBlock(block.code, block.closed)
+                } else HighlightCodeBlock(
                     code = block.code,
                     language = block.language ?: "plaintext",
                     modifier = Modifier.fillMaxWidth(),

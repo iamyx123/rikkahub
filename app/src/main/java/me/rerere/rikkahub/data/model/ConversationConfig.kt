@@ -26,6 +26,7 @@ data class ConversationConfig(
     val mcpServers: Set<Uuid> = emptySet(),
     val workspaceId: Uuid? = null,
     val enabledSkills: Set<String> = emptySet(),
+    val enableInteractiveUi: Boolean = false,
 )
 
 // 内置搜索是模型的开关，不在助手上，由调用方另行填入
@@ -65,6 +66,7 @@ fun Conversation.withAssistantUpdate(updated: Assistant, settings: Settings): Co
     } else {
         copy(
             config = updated.toConversationConfig().copy(
+                enableInteractiveUi = config.enableInteractiveUi,
                 builtInSearch = if (updated.chatModelId == config.chatModelId) {
                     config.builtInSearch
                 } else {

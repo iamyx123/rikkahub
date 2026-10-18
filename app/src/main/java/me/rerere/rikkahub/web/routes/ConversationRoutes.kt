@@ -21,6 +21,7 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
 import me.rerere.rikkahub.service.ChatService
+import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.web.BadRequestException
 import me.rerere.rikkahub.web.NotFoundException
 import me.rerere.rikkahub.web.dto.ConversationDto
@@ -30,6 +31,7 @@ import me.rerere.rikkahub.web.dto.EditMessageRequest
 import me.rerere.rikkahub.web.dto.ErrorEvent
 import me.rerere.rikkahub.web.dto.ForkConversationRequest
 import me.rerere.rikkahub.web.dto.ForkConversationResponse
+import me.rerere.rikkahub.web.dto.MessageSearchResultDto
 import me.rerere.rikkahub.web.dto.MoveConversationRequest
 import me.rerere.rikkahub.web.dto.MoveConversationToFolderRequest
 import me.rerere.rikkahub.web.dto.PagedResult
@@ -37,13 +39,11 @@ import me.rerere.rikkahub.web.dto.RegenerateRequest
 import me.rerere.rikkahub.web.dto.SelectMessageNodeRequest
 import me.rerere.rikkahub.web.dto.SendMessageRequest
 import me.rerere.rikkahub.web.dto.ToolApprovalRequest
-import me.rerere.rikkahub.web.dto.MessageSearchResultDto
 import me.rerere.rikkahub.web.dto.UpdateConversationConfigRequest
 import me.rerere.rikkahub.web.dto.UpdateConversationInjectionsRequest
 import me.rerere.rikkahub.web.dto.UpdateConversationTitleRequest
 import me.rerere.rikkahub.web.dto.toDto
 import me.rerere.rikkahub.web.dto.toListDto
-import me.rerere.rikkahub.utils.JsonInstant
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -220,6 +220,7 @@ fun Route.conversationRoutes(
             val request = call.receive<UpdateConversationConfigRequest>()
             conversationRepo.requireConversation(uuid)
 
+            request.enableInteractiveUi?.let { chatService.setInteractiveUiEnabled(uuid, it) }
             val settings = settingsStore.awaitLoaded()
             val chatModelId = request.chatModelId?.toUuid("chatModelId")?.also { modelId ->
                 val model = settings.findModelById(modelId)
@@ -249,6 +250,21 @@ fun Route.conversationRoutes(
 
             val isGenerating = chatService.getGenerationJobStateFlow(uuid).first() != null
             call.respond(HttpStatusCode.OK, chatService.getConversationFlow(uuid).first().toDto(isGenerating))
+        }
+
+        post("/{id}/messages/{messageId}/interactive-ui") {
+            val uuid = call.parameters["id"].toUuid("conversation id")
+            val messageId = call.parameters["messageId"].toUuid("message id")
+            conversationRepo.requireConversation(uuid)
+            val request = call.receive<me.rerere.rikkahub.web.dto.SaveInteractiveUiStateRequest>()
+            val saved = try {
+                chatService.saveInteractiveUiState(uuid, messageId, request.source, request.state)
+            } catch (
+                error: IllegalArgumentException
+            ) {
+                throw BadRequestException("Invalid interactive UI state")
+            }
+            call.respond(HttpStatusCode.OK, mapOf("saved" to saved))
         }
 
         // POST /api/conversations/{id}/move - Move conversation to another assistant
@@ -294,6 +310,7 @@ fun Route.conversationRoutes(
             val folderId = request.folderId?.takeIf { it.isNotBlank() }?.toUuid("folder id")
 
             chatService.initializeConversation(uuid)
+            request.enableInteractiveUi?.let { chatService.setInteractiveUiEnabled(uuid, it) }
             if (folderId != null) chatService.updateDraftConversationFolder(uuid, folderId)
             chatService.sendMessage(uuid, request.parts, answer = true)
 

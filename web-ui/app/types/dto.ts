@@ -65,6 +65,7 @@ export interface ConversationListInvalidateEventDto {
  * @see app/src/main/java/me/rerere/rikkahub/web/dto/WebDto.kt - MessageDto
  */
 export interface MessageDto {
+  interactiveUiStates?: Record<string, Record<string, unknown>>;
   id: string;
   role: string;
   parts: UIMessagePart[];

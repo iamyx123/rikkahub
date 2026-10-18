@@ -83,6 +83,7 @@ private class ReasoningState(
 private fun rememberReasoningState(reasoning: UIMessagePart.Reasoning): Pair<ReasoningState, Boolean> {
     val settings = LocalSettings.current
     val loading = reasoning.finishedAt == null
+    val eink = settings.displaySetting.disableCursorBlink
     val scrollState = rememberScrollState()
 
     val state = remember(reasoning.createdAt) {
@@ -93,11 +94,11 @@ private fun rememberReasoningState(reasoning: UIMessagePart.Reasoning): Pair<Rea
         )
     }
 
-    LaunchedEffect(reasoning.reasoning, loading) {
+    LaunchedEffect(reasoning.reasoning, loading, eink) {
         if (loading) {
             if (!state.expandState.expanded && settings.displaySetting.showThinkingContent)
                 state.expandState = ReasoningCardState.Preview
-            scrollState.animateScrollTo(scrollState.maxValue)
+            if (eink) scrollState.scrollTo(scrollState.maxValue) else scrollState.animateScrollTo(scrollState.maxValue)
         } else {
             if (state.expandState.expanded) {
                 state.expandState = if (settings.displaySetting.autoCloseThinking)
@@ -108,8 +109,8 @@ private fun rememberReasoningState(reasoning: UIMessagePart.Reasoning): Pair<Rea
         }
     }
 
-    LaunchedEffect(loading) {
-        if (loading) {
+    LaunchedEffect(loading, eink) {
+        if (loading && !eink) {
             while (isActive) {
                 state.duration = (reasoning.finishedAt ?: Clock.System.now()) - reasoning.createdAt
                 delay(50)
@@ -129,6 +130,7 @@ private fun ReasoningContent(
     fadeHeight: Float,
     loading: Boolean,
 ) {
+    val eink = LocalSettings.current.displaySetting.disableCursorBlink
     val isPreview = expandState == ReasoningCardState.Preview
     val reasoningTextStyle = MaterialTheme.typography.bodySmall.copy(
         fontFamily = LocalTextStyle.current.fontFamily,
@@ -137,7 +139,9 @@ private fun ReasoningContent(
         modifier = Modifier
             .fillMaxWidth()
             .let { contentModifier ->
-                if (isPreview) {
+                if (isPreview && eink) {
+                    contentModifier.heightIn(max = 100.dp).verticalScroll(scrollState)
+                } else if (isPreview) {
                     contentModifier
                         .graphicsLayer { alpha = 0.99f }
                         .drawWithCache {
@@ -199,7 +203,8 @@ fun ChainOfThoughtScope.ChatMessageReasoningStep(
     collapsedAdaptiveWidth: Boolean = false,
 ) {
     val (state, loading) = rememberReasoningState(reasoning)
-    val thinkingTitle = reasoning.reasoning.extractThinkingTitle()
+    val eink = LocalSettings.current.displaySetting.disableCursorBlink
+    val thinkingTitle = if (eink) null else reasoning.reasoning.extractThinkingTitle()
     val showThinkingTitle = loading && thinkingTitle != null
     val chatFontFamily = LocalTextStyle.current.fontFamily
 
@@ -215,7 +220,13 @@ fun ChainOfThoughtScope.ChatMessageReasoningStep(
             )
         },
         label = {
-            if (showThinkingTitle) {
+            if (eink) {
+                Text(
+                    text = if (loading) "正在思考" else "思考完成",
+                    style = MaterialTheme.typography.titleSmall.copy(fontFamily = chatFontFamily),
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+            } else if (showThinkingTitle) {
                 ReasoningTitle(title = thinkingTitle!!)
             } else {
                 Text(
@@ -230,7 +241,7 @@ fun ChainOfThoughtScope.ChatMessageReasoningStep(
             }
         },
         extra = {
-            if (showThinkingTitle && state.duration > 0.seconds) {
+            if (!eink && showThinkingTitle && state.duration > 0.seconds) {
                 Text(
                     text = state.duration.toString(DurationUnit.SECONDS, 1),
                     style = MaterialTheme.typography.labelSmall.copy(fontFamily = chatFontFamily),

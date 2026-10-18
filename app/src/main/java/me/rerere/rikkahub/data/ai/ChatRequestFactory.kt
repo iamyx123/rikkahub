@@ -246,7 +246,10 @@ class ChatRequestFactory(
             },
             sessionId = turn.conversationId.toString(),
         )
-        return StepRequest(requestMessages, params)
+        return StepRequest(
+            me.rerere.rikkahub.data.intelligentui.applyInteractiveUiDirectives(requestMessages, messages),
+            params
+        )
     }
 }
 

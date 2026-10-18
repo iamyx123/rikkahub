@@ -49,6 +49,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateListOf
 import me.rerere.ai.ui.UIMessage
+import me.rerere.rikkahub.data.intelligentui.interactiveUiPrintText
 import me.rerere.highlight.CodeHighlighter
 import me.rerere.highlight.LocalCodeHighlighter
 import me.rerere.rikkahub.data.datastore.Settings
@@ -192,7 +193,7 @@ fun rememberMessagePrinter(): (UIMessage) -> Unit {
                 toaster.show(message = "无法获取窗口，打印失败", type = ToastType.Error)
                 return@fn
             }
-            val text = message.toText().trim()
+            val text = message.interactiveUiPrintText().trim()
             if (text.isBlank()) {
                 toaster.show(message = "该回复没有可打印的文字", type = ToastType.Warning)
                 return@fn
@@ -229,7 +230,7 @@ fun MessagePrintPreviewDialog(
     val highlighter: CodeHighlighter = koinInject()
     val settingsStore: SettingsStore = koinInject()
     val scope = rememberCoroutineScope()
-    val text = remember(message) { message.toText().trim() }
+    val text = remember(message) { message.interactiveUiPrintText().trim() }
 
     val initialScale = settings.displaySetting.paperangPrinter.printFontScale
     var sliderValue by remember { mutableFloatStateOf(initialScale) }

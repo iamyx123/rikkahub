@@ -1,3 +1,4 @@
+import { InteractiveUi } from "~/components/intelligent-ui/interactive-ui";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { Streamdown } from "streamdown";
@@ -115,7 +116,7 @@ export default function Markdown({
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[[rehypeKatex, { trust: true, strict: false }], rehypeRaw]}
         plugins={{ cjk: cjk }}
-        animated={{ animation: "fadeIn", sep: 'word', duration: 150 }}
+        animated={displaySetting?.disableCursorBlink === true ? false : { animation: "fadeIn", sep: 'word', duration: 150 }}
         isAnimating={isAnimating}
         controls={{code: false, mermaid: false}}
         components={{
@@ -127,6 +128,7 @@ export default function Markdown({
 
             if (match || isBlock) {
               const language = match?.[1] || "";
+              if (language === "openui" || language === "openui-lang") return <InteractiveUi key={code} source={code} />;
               return (
                 <CodeBlock
                   language={language}

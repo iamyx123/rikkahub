@@ -159,6 +159,8 @@ fun ChatInput(
     onStartVoiceMode: (() -> Unit)? = null,
     voiceState: VoiceSessionState = VoiceSessionState(),
     onStopVoiceMode: () -> Unit = {},
+    interactiveUiEnabled: Boolean = false,
+    onInteractiveUiEnabledChange: (Boolean) -> Unit = {},
 ) {
     val toaster = LocalToaster.current
     val containerColor = MaterialTheme.colorScheme.surfaceContainerLow
@@ -354,6 +356,13 @@ fun ChatInput(
                                 },
                                 onUpdateSearchService = onUpdateSearchService,
                                 model = chatModel,
+                            )
+
+                            androidx.compose.material3.FilterChip(
+                                selected = interactiveUiEnabled,
+                                onClick = { onInteractiveUiEnabledChange(!interactiveUiEnabled) },
+                                enabled = !loading,
+                                label = { Text(if (interactiveUiEnabled) "交互 UI · 开" else "交互 UI") },
                             )
 
                             // Reasoning
@@ -898,7 +907,7 @@ private fun QuickMessageButton(
  * 仅在「禁用光标闪烁」开启时使用；关闭时仍走原生 Material TextField。
  */
 @Composable
-private fun StaticCaretTextField(
+internal fun StaticCaretTextField(
     state: TextFieldState,
     textStyle: TextStyle,
     caretColor: Color,
@@ -906,6 +915,7 @@ private fun StaticCaretTextField(
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     onKeyboardAction: KeyboardActionHandler? = null,
     lineLimits: TextFieldLineLimits = TextFieldLineLimits.Default,
+    enabled: Boolean = true,
     decoration: @Composable (textWithCaret: @Composable () -> Unit) -> Unit,
 ) {
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -917,6 +927,7 @@ private fun StaticCaretTextField(
         keyboardOptions = keyboardOptions,
         onKeyboardAction = onKeyboardAction,
         lineLimits = lineLimits,
+        enabled = enabled,
         onTextLayout = { layout = it() },
         cursorBrush = SolidColor(Color.Transparent), // 隐藏会闪烁的系统光标
         scrollState = scroll,

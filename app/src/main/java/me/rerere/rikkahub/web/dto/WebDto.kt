@@ -4,8 +4,8 @@ import kotlinx.serialization.Serializable
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.ui.ModelSnapshot
-import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.ConversationConfig
@@ -15,6 +15,7 @@ import me.rerere.rikkahub.data.model.MessageNode
 
 @Serializable
 data class SendMessageRequest(
+    val enableInteractiveUi: Boolean? = null,
     val parts: List<UIMessagePart>,
     // 新会话首条消息归入的文件夹；已存在的会话忽略
     val folderId: String? = null,
@@ -66,7 +67,11 @@ data class UpdateConversationInjectionsRequest(
 
 // 只更新传了值的字段；会话开始前这些修改落在助手上
 @Serializable
+data class SaveInteractiveUiStateRequest(val source: String, val state: kotlinx.serialization.json.JsonObject)
+
+@Serializable
 data class UpdateConversationConfigRequest(
+    val enableInteractiveUi: Boolean? = null,
     val chatModelId: String? = null,
     val reasoningLevel: ReasoningLevel? = null,
     val mcpServerIds: List<String>? = null,
@@ -233,6 +238,7 @@ data class MessageDto(
     val generationTimeMs: Long? = null,
     val translation: String? = null,
     val isContextCheckpoint: Boolean = false,
+    val interactiveUiStates: Map<String, kotlinx.serialization.json.JsonObject> = emptyMap(),
 )
 
 @Serializable
@@ -376,4 +382,5 @@ fun UIMessage.toDto() = MessageDto(
     generationTimeMs = generationTimeMs,
     translation = translation,
     isContextCheckpoint = isContextCheckpoint,
+    interactiveUiStates = interactiveUiStates,
 )

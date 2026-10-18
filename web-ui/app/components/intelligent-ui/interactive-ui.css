@@ -1,0 +1,109 @@
+.intelligent-ui {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 1.5rem;
+  background: var(--muted);
+  color: var(--foreground);
+  width: 100%;
+  overflow: hidden;
+}
+.intelligent-ui header,
+.intelligent-ui .ui-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.intelligent-ui header strong {
+  flex: 1;
+}
+.intelligent-ui .ui-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.intelligent-ui .ui-card {
+  background: var(--background);
+  padding: 1rem;
+  border-radius: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+.intelligent-ui label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.intelligent-ui label.ui-check {
+  flex-direction: row;
+  align-items: center;
+}
+.intelligent-ui input:not([type="checkbox"]),
+.intelligent-ui textarea,
+.intelligent-ui select {
+  width: 100%;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--background);
+  color: var(--foreground);
+}
+.intelligent-ui input[type="range"] {
+  accent-color: var(--primary);
+  padding: 0;
+}
+.intelligent-ui :focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.intelligent-ui .ui-badge {
+  padding: 0.25rem 0.65rem;
+  border-radius: 1rem;
+  background: var(--secondary);
+}
+.intelligent-ui .ui-scroll,
+.intelligent-ui pre {
+  overflow: auto;
+  max-height: 28rem;
+}
+.intelligent-ui svg {
+  width: 100%;
+  max-height: 22rem;
+}
+.intelligent-ui img {
+  max-height: 20rem;
+  object-fit: contain;
+}
+.intelligent-ui summary {
+  cursor: pointer;
+}
+.intelligent-ui th,
+.intelligent-ui td {
+  padding: 0.45rem;
+  text-align: start;
+  border-bottom: 1px solid var(--border);
+}
+.intelligent-ui p {
+  white-space: pre-wrap;
+}
+.intelligent-ui *,
+.intelligent-ui *::before,
+.intelligent-ui *::after {
+  animation: none !important;
+  transition: none !important;
+}
+@media print {
+  .intelligent-ui header button,
+  .intelligent-ui button {
+    display: none;
+  }
+  .intelligent-ui .ui-scroll {
+    overflow: visible;
+    max-height: none;
+  }
+}
+
+.intelligent-ui .ui-grid {
+  display: grid;
+  gap: 0.75rem;
+}

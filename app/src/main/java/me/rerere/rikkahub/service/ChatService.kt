@@ -54,6 +54,7 @@ import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.intelligentui.withInteractiveUiState
 import me.rerere.rikkahub.data.model.bindConfig
 import me.rerere.rikkahub.data.model.cancelInterruptedTools
 import me.rerere.rikkahub.data.model.deleteMessage
@@ -421,13 +422,20 @@ class ChatService(
                 val assistant = settingsStore.awaitLoaded().getStoredAssistantOf(session.state.value)
                 val processedContent = queued.parts.replaceUserRegexes(assistant)
 
+                val uiPrompt = if (session.state.value.config?.enableInteractiveUi == true) {
+                    withContext(Dispatchers.IO) { me.rerere.rikkahub.data.intelligentui.InteractiveUiRuntime.prompt(context) }
+                } else ""
                 // 添加消息到列表
                 val previousIds = session.state.value.currentMessages.mapTo(HashSet()) { it.id }
                 session.update {
+                    val enabled = it.config?.enableInteractiveUi == true
+                    val previous = it.currentMessages.lastOrNull { message -> message.interactiveUiMode != null }?.interactiveUiMode ?: false
                     it.copy(
                         messageNodes = it.messageNodes + UIMessage(
                             role = MessageRole.USER,
                             parts = processedContent,
+                            interactiveUiMode = enabled,
+                            interactiveUiDirective = me.rerere.rikkahub.data.intelligentui.interactiveUiDirective(previous, enabled, uiPrompt),
                         ).toMessageNode(),
                     )
                 }
@@ -831,6 +839,29 @@ class ChatService(
             session.flush()
         }
     }
+
+    suspend fun setInteractiveUiEnabled(conversationId: Uuid, enabled: Boolean) {
+        withLoadedSession(conversationId) { session ->
+            check(!session.isGenerating) { "请等待当前回复完成" }
+            val settings = settingsStore.awaitLoaded()
+            session.updateMetadata(
+                transform = { latest ->
+                    check(!session.isGenerating) { "请等待当前回复完成" }
+                    val bound = latest.bindConfig(settings)
+                    bound.copy(config = bound.config?.copy(enableInteractiveUi = enabled))
+                },
+                persist = conversationRepo::updateConversationConfig,
+            )
+        }
+    }
+
+    suspend fun saveInteractiveUiState(conversationId: Uuid, messageId: Uuid, source: String, state: kotlinx.serialization.json.JsonObject): Boolean =
+        withLoadedSession(conversationId, createIfMissing = false) { session ->
+            val updated = session.update { latest -> latest.withInteractiveUiState(messageId, source, state) }
+            session.flush()
+            updated.getMessageNodeByMessageId(messageId)?.messages?.firstOrNull { it.id == messageId }
+                ?.interactiveUiStates?.get(me.rerere.rikkahub.data.intelligentui.interactiveUiKey(source)) == state
+        }
 
     // ---- 聊天页配置 ----
 

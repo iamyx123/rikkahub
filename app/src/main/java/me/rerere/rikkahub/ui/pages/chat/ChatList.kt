@@ -160,6 +160,7 @@ fun ChatList(
     onForkMessage: (UIMessage) -> Unit = {},
     onDelete: (UIMessage) -> Unit = {},
     onUpdateMessage: (MessageNode) -> Unit = {},
+    onInteractiveDraft: (String) -> Unit = {},
     onClickSuggestion: (String) -> Unit = {},
     onTranslate: ((UIMessage, java.util.Locale) -> Unit)? = null,
     onClearTranslation: (UIMessage) -> Unit = {},
@@ -223,6 +224,7 @@ fun ChatList(
                 onAddBookmark = onAddBookmark,
                 onDeleteBookmark = onDeleteBookmark,
                 onQuote = onQuote,
+                onInteractiveDraft = onInteractiveDraft,
                 transientResetSignal = transientResetSignal,
             )
         }
@@ -281,6 +283,7 @@ private fun ChatListNormal(
     onAddBookmark: (nodeId: Uuid, scrollOffset: Int, label: String) -> Unit = { _, _, _ -> },
     onDeleteBookmark: (Uuid) -> Unit = {},
     onQuote: (String) -> Unit = {},
+    onInteractiveDraft: (String) -> Unit = {},
     transientResetSignal: Int = 0,
 ) {
     val scope = rememberCoroutineScope()
@@ -402,6 +405,8 @@ private fun ChatListNormal(
                         enabled = selecting,
                     ) {
                         ChatMessage(
+                            conversationId = conversation.id,
+                            onInteractiveDraft = onInteractiveDraft,
                             node = node,
                             model = node.currentMessage.modelId?.let(modelById::get)
                                 ?: node.currentMessage.snapshotModel(),
@@ -459,7 +464,9 @@ private fun ChatListNormal(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        ContainedLoadingIndicator(
+                        if (settings.displaySetting.disableCursorBlink) {
+                            Text("正在思考", style = MaterialTheme.typography.bodySmall)
+                        } else ContainedLoadingIndicator(
                             modifier = Modifier.size(28.dp)
                         )
                         AnimatedVisibility(

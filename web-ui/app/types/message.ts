@@ -16,6 +16,9 @@ export interface ModelSnapshot {
  * @see ai/src/main/java/me/rerere/ai/ui/Message.kt - UIMessage
  */
 export interface UIMessage {
+  interactiveUiStates?: Record<string, Record<string, unknown>>;
+  interactiveUiMode?: boolean | null;
+  interactiveUiDirective?: string | null;
   id: string;
   role: MessageRole;
   parts: UIMessagePart[];

@@ -222,7 +222,7 @@ function ChainOfThoughtStepContent({
         {hasContent && !(collapsedAdaptiveWidth && !contentVisible) && (
           <div
             className={cn(
-              "grid transition-all duration-200 ease-out",
+              "grid motion-reduce:transition-none transition-all duration-200 ease-out",
               shouldFillMaxWidth && "w-full",
             )}
             style={{ gridTemplateRows: contentVisible ? "1fr" : "0fr" }}
