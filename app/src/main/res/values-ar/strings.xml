@@ -1600,9 +1600,14 @@
   <string name="media_creation_page_nothing_to_save">لا تحتوي العناصر المحددة على صور أو مقاطع فيديو لحفظها</string>
   <string name="media_creation_page_saved_files">تم حفظ %1$d من الملفات في المعرض</string>
   <string name="media_creation_page_saved_files_partial">تم حفظ %1$d من الملفات، وفشل %2$d: %3$s</string>
-  <string name="chat_page_compress_nothing_to_compress">لا توجد رسائل جديدة لضغطها منذ آخر ملخص</string>
-  <string name="chat_page_compress_handle_pending_tools">عالج استدعاءات الأدوات المعلقة قبل الضغط</string>
-  <string name="chat_page_compress_tool_call_response">حاول النموذج استدعاء أداة بدلاً من كتابة الملخص. يرجى المحاولة مرة أخرى.</string>
+  <string name="chat_input_edit_reasoning">تعديل الاستدلال</string>
+  <string name="chat_input_reasoning_placeholder">محتوى الاستدلال</string>
+  <string name="setting_display_page_voice_listen_while_replying_title">متابعة الاستماع أثناء الردود في الوضع الصوتي</string>
+  <string name="setting_display_page_voice_listen_while_replying_desc">يُدرج الكلام الذي يُقال أثناء رد النموذج في قائمة انتظار ويُرسل بعد ذلك. أوقفه لإيقاف الميكروفون مؤقتًا حتى ينتهي الرد (ويُقرأ بصوت عالٍ)، من أجل محادثات سؤال واحد وجواب واحد.</string>
+  <string name="chat_page_voice_waiting">في انتظار الرد؛ سيستأنف الاستماع بعد ذلك</string>
+  <string name="chat_page_compress_nothing_to_compress">لا توجد رسائل جديدة لضغطها منذ آخر ملخّص</string>
+  <string name="chat_page_compress_handle_pending_tools">عالج استدعاءات الأدوات المعلّقة قبل الضغط</string>
+  <string name="chat_page_compress_tool_call_response">حاول النموذج استدعاء أداة بدلاً من كتابة الملخّص. يُرجى المحاولة مرة أخرى.</string>
   <string name="setting_display_page_immersive_mode_desc">إخفاء شريط الحالة لعرض ملء الشاشة. اسحب من الحافة العلوية لإظهاره مؤقتاً</string>
   <string name="setting_display_page_immersive_mode_title">الوضع الغامر</string>
   <string name="setting_display_page_scroll_to_bottom_on_send_desc">الانتقال تلقائياً إلى أحدث رسالة عند الإرسال؛ عطّل هذا الخيار للاحتفاظ بموضع القراءة الحالي</string>
