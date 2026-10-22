@@ -209,7 +209,7 @@ class PaperangPrinter(
 
     suspend fun startScan(timeoutMs: Long = 10_000) {
         try {
-            readingPower.withNetwork { startScanWithRadios(timeoutMs) }
+            readingPower.withRadios { startScanWithRadios(timeoutMs) }
         } catch (failure: Exception) {
             if (failure is CancellationException) throw failure
             _status.value = _status.value.copy(message = "无法扫描: ${failure.message}")
@@ -332,7 +332,7 @@ class PaperangPrinter(
     }
 
     suspend fun connect(address: String): Boolean = try {
-        readingPower.withNetwork { connectMutex.withLock { connectWithRadios(address) } }
+        readingPower.withRadios { connectMutex.withLock { connectWithRadios(address) } }
     } catch (failure: Exception) {
         if (failure is CancellationException) throw failure
         _status.value = _status.value.copy(state = ConnState.DISCONNECTED, message = "无法连接: ${failure.message}")
@@ -496,7 +496,7 @@ class PaperangPrinter(
     }
 
     /** Hold radios only for a real print transaction, including preparation, never for idle GATT. */
-    suspend fun <T> withWirelessOperation(block: suspend () -> T): T = readingPower.withNetwork(block)
+    suspend fun <T> withWirelessOperation(block: suspend () -> T): T = readingPower.withRadios(block)
 
     /** Retry only the same remembered device, respecting the existing auto-reconnect setting. */
     suspend fun ensureRememberedConnection(): Boolean {
@@ -511,7 +511,7 @@ class PaperangPrinter(
     suspend fun printBitmap(bitmap: android.graphics.Bitmap, grayscale: Boolean, density: Int = 90, feedAfter: Int = 0): Result<Unit> =
         withContext(Dispatchers.IO) {
             runCatching {
-                readingPower.withNetwork {
+                readingPower.withRadios {
                     check(ensureRememberedConnection()) { _status.value.message ?: "打印机未连接" }
                     val width = effectivePaperWidth()
                     if (grayscale) printGray(bitmap, width, density, feedAfter)
@@ -590,7 +590,7 @@ class PaperangPrinter(
     }
 
     suspend fun feed(lines: Int) {
-        readingPower.withNetwork {
+        readingPower.withRadios {
             sendCommand(PaperangProtocol.PARENT_THERMALPRINTER, PaperangProtocol.TP_SET_MOVE_PAPER, PaperangProtocol.u16(lines))
         }
     }
@@ -603,7 +603,7 @@ class PaperangPrinter(
     }
 
     suspend fun selfTest() {
-        readingPower.withNetwork {
+        readingPower.withRadios {
             sendCommand(PaperangProtocol.PARENT_THERMALPRINTER, PaperangProtocol.TP_SELF_TEST)
         }
     }

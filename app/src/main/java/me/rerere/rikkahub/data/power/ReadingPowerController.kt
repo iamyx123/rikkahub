@@ -150,7 +150,10 @@ class ReadingPowerController(
 
     suspend fun acquireNetwork(): ReadingPowerNetworkLease = acquireNetwork(resumeReadingOnRelease = true)
 
-    private suspend fun acquireNetwork(resumeReadingOnRelease: Boolean): ReadingPowerNetworkLease {
+    private suspend fun acquireNetwork(
+        resumeReadingOnRelease: Boolean,
+        waitForNetwork: Boolean = true,
+    ): ReadingPowerNetworkLease {
         // Register before waiting for the mutation lock: an in-flight enable rechecks this count.
         networkLeases.incrementAndGet()
         try {
@@ -160,7 +163,7 @@ class ReadingPowerController(
                 if (!loadAndRecoverLocked() || !restoreOwnedLocked()) {
                     throw IOException(state.value.error ?: "飞行模式尚未恢复，已暂停联网。")
                 }
-                if (networkNeedsSettle) awaitNetworkLocked()
+                if (waitForNetwork && networkNeedsSettle) awaitNetworkLocked()
                 publish(if (snapshot().enabled) ReadingPowerPhase.INACTIVE else ReadingPowerPhase.DISABLED)
             }
         } catch (error: Throwable) {
@@ -179,6 +182,16 @@ class ReadingPowerController(
 
     suspend fun <T> withNetwork(block: suspend () -> T): T {
         val lease = acquireNetwork()
+        return try {
+            block()
+        } finally {
+            lease.release()
+        }
+    }
+
+    /** Bluetooth/local wireless work needs the radios restored, without requiring an IP route. */
+    suspend fun <T> withRadios(block: suspend () -> T): T {
+        val lease = acquireNetwork(resumeReadingOnRelease = true, waitForNetwork = false)
         return try {
             block()
         } finally {

@@ -413,4 +413,46 @@ class ReadingPowerControllerTest {
         runCurrent()
         assertEquals(ReadingPowerPhase.INACTIVE, controller.state.value.phase)
     }
+
+    @Test
+    fun `offline bluetooth work restores radios without waiting for an IP network`() = runTest {
+        val access = Access().apply { ready = false }
+        val controller = controller(access)
+        controller.read(0)
+        runCurrent()
+        var operated = false
+        controller.withRadios {
+            assertFalse(access.flight)
+            operated = true
+            advanceTimeBy(20_000)
+            runCurrent()
+            assertFalse(access.flight)
+        }
+        assertTrue(operated)
+        assertEquals(0, access.networkReads)
+        assertEquals(listOf(true, false, true), access.writes)
+    }
+
+    @Test
+    fun `wireless operation keeps pending network settling for the following HTTP request`() = runTest {
+        val access = Access().apply { ready = false }
+        val controller = controller(access)
+        controller.read(0)
+        runCurrent()
+        controller.setAppForeground(false)
+        runCurrent()
+        controller.withRadios { assertFalse(access.flight) }
+        assertEquals(0, access.networkReads)
+        var requested = false
+        val request = async { controller.withNetwork { requested = true } }
+        runCurrent()
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertFalse(requested)
+        access.ready = true
+        advanceTimeBy(200)
+        runCurrent()
+        request.await()
+        assertTrue(requested)
+    }
 }
