@@ -33,21 +33,20 @@ fun queryLatestPhotoGroup(
     val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
 
     val collected = mutableListOf<Uri>()
-    runCatching {
-        context.contentResolver.query(collection, projection, null, null, sortOrder)?.use { cursor ->
-            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-            val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
-            if (!cursor.moveToFirst()) return emptyList()
-            val latest = cursor.getLong(dateCol)
-            val threshold = latest - withinMinutes.toLong().coerceAtLeast(0) * 60
-            do {
-                val date = cursor.getLong(dateCol)
-                if (date < threshold) break
-                val id = cursor.getLong(idCol)
-                collected.add(ContentUris.withAppendedId(collection, id))
-                if (collected.size >= limit) break
-            } while (cursor.moveToNext())
-        }
+    // A revoked/changed permission is an error, rather than an apparently empty photo library.
+    context.contentResolver.query(collection, projection, null, null, sortOrder)?.use { cursor ->
+        val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+        val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+        if (!cursor.moveToFirst()) return emptyList()
+        val latest = cursor.getLong(dateCol)
+        val threshold = latest - withinMinutes.toLong().coerceAtLeast(0) * 60
+        do {
+            val date = cursor.getLong(dateCol)
+            if (date < threshold) break
+            val id = cursor.getLong(idCol)
+            collected.add(ContentUris.withAppendedId(collection, id))
+            if (collected.size >= limit) break
+        } while (cursor.moveToNext())
     }
     // collected 为新→旧，反转为旧→新更符合阅读/发送顺序
     return collected.asReversed().toList()

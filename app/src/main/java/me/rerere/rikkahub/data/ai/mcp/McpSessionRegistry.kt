@@ -137,7 +137,14 @@ internal class McpSessionRegistry(
     suspend fun callTool(serverId: Uuid, toolName: String, args: JsonObject): CallToolResult {
         val session = sessions[serverId]
             ?: throw McpClientUnavailableException("No MCP session for server $serverId")
-        val freshConfig = oauthCoordinator.ensureFreshToken(session.config)
+        val freshConfig = try {
+            oauthCoordinator.ensureFreshToken(session.config)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            updateFailure(session.config, failure)
+            throw failure
+        }
         if (!hasSameConnectionParameters(session.connectedConfig, freshConfig)) {
             session.config = freshConfig
             addClient(freshConfig)
@@ -158,7 +165,19 @@ internal class McpSessionRegistry(
             throw e
         } catch (e: Exception) {
             if (oauthCoordinator.needsAuthorization(config, e)) {
+                val refreshed = try { refreshRejectedConfig(config) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (failure: Exception) { updateFailure(config, failure); throw failure }
+                if (refreshed != null) {
+                    session.config = refreshed
+                    addClient(refreshed)
+                    // A tool may have side effects. Reconnect authentication, never replay its operation.
+                    throw McpClientUnavailableException("MCP 登录已自动刷新，未自动重放工具调用，请重试。")
+                }
                 statusStore.update(config.id, McpStatus.NeedsAuthorization)
+            } else {
+                statusStore.update(config.id, McpStatus.Error.from(e))
+                requestReconnect(config.id, sdkClient, retryAfterFailure = true)
             }
             throw e
         }
@@ -215,7 +234,12 @@ internal class McpSessionRegistry(
                 session.reconnectAttempt = 0
             }
 
-            val config = oauthCoordinator.ensureFreshToken(session.config)
+            var config = try { oauthCoordinator.ensureFreshToken(session.config) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                updateFailure(session.config, failure)
+                return@withLock if (oauthCoordinator.needsAuthorization(session.config, failure)) ConnectResult.NeedsAuthorization else ConnectResult.Failed
+            }
             session.config = config
             if (!forceReconnect &&
                 session.client != null &&
@@ -230,41 +254,60 @@ internal class McpSessionRegistry(
             session.connectedConfig = null
             oldClient?.let { closeClient(it, config.commonOptions.name) }
 
-            val sdkClient = createSdkClient(config)
-            val transport = createTransport(config)
-            installTransportCallbacks(config, sdkClient, transport)
+            var refreshedAfterRejection = false
+            var connectionAttempt = 0
+            while (connectionAttempt++ < 2) {
+                val sdkClient = createSdkClient(config)
+                val transport = createTransport(config)
+                installTransportCallbacks(config, sdkClient, transport)
 
-            try {
-                sdkClient.connect(transport)
-                val syncedConfig = syncTools(session, sdkClient, config)
-                if (sessions[config.id] !== session ||
-                    !hasSameConnectionParameters(config, syncedConfig)
-                ) {
+                try {
+                    sdkClient.connect(transport)
+                    val syncedConfig = syncTools(session, sdkClient, config)
+                    if (sessions[config.id] !== session ||
+                        !hasSameConnectionParameters(config, syncedConfig)
+                    ) {
+                        closeClient(sdkClient, config.commonOptions.name)
+                        return@withLock ConnectResult.Stale
+                    }
+
+                    session.config = syncedConfig
+                    session.connectedConfig = syncedConfig
+                    session.client = sdkClient
+                    session.reconnectAttempt = 0
+                    statusStore.update(config.id, McpStatus.Connected)
+                    Log.i(TAG, "Connected MCP server ${config.id} (${config.commonOptions.name})")
+                    return@withLock ConnectResult.Success
+                } catch (e: CancellationException) {
                     closeClient(sdkClient, config.commonOptions.name)
-                    return@withLock ConnectResult.Stale
-                }
-
-                session.config = syncedConfig
-                session.connectedConfig = syncedConfig
-                session.client = sdkClient
-                session.reconnectAttempt = 0
-                statusStore.update(config.id, McpStatus.Connected)
-                Log.i(TAG, "Connected MCP server ${config.id} (${config.commonOptions.name})")
-                ConnectResult.Success
-            } catch (e: CancellationException) {
-                closeClient(sdkClient, config.commonOptions.name)
-                throw e
-            } catch (e: Exception) {
-                closeClient(sdkClient, config.commonOptions.name)
-                Log.e(TAG, "Failed to connect MCP server ${config.id}", e)
-                if (oauthCoordinator.needsAuthorization(config, e)) {
-                    statusStore.update(config.id, McpStatus.NeedsAuthorization)
-                    ConnectResult.NeedsAuthorization
-                } else {
-                    statusStore.update(config.id, McpStatus.Error.from(e))
-                    ConnectResult.Failed
+                    throw e
+                } catch (e: Exception) {
+                    closeClient(sdkClient, config.commonOptions.name)
+                    Log.e(TAG, "Failed to connect MCP server ${config.id}", e)
+                    if (oauthCoordinator.needsAuthorization(config, e)) {
+                        if (!refreshedAfterRejection) {
+                            val refreshed = try { refreshRejectedConfig(config) }
+                            catch (cancelled: CancellationException) { throw cancelled }
+                            catch (failure: Exception) {
+                                updateFailure(config, failure)
+                                return@withLock if (oauthCoordinator.needsAuthorization(config, failure)) ConnectResult.NeedsAuthorization else ConnectResult.Failed
+                            }
+                            if (refreshed != null) {
+                                config = refreshed
+                                session.config = refreshed
+                                refreshedAfterRejection = true
+                                continue
+                            }
+                        }
+                        statusStore.update(config.id, McpStatus.NeedsAuthorization)
+                        return@withLock ConnectResult.NeedsAuthorization
+                    } else {
+                        statusStore.update(config.id, McpStatus.Error.from(e))
+                        return@withLock ConnectResult.Failed
+                    }
                 }
             }
+            ConnectResult.Failed
         }
     }
 
@@ -294,7 +337,14 @@ internal class McpSessionRegistry(
                     throw e
                 } catch (e: Exception) {
                     if (oauthCoordinator.needsAuthorization(config, e)) {
-                        statusStore.update(config.id, McpStatus.NeedsAuthorization)
+                        try {
+                            reconnectConfig = refreshRejectedConfig(config)
+                            if (reconnectConfig == null) statusStore.update(config.id, McpStatus.NeedsAuthorization)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            updateFailure(config, failure)
+                        }
                     } else {
                         statusStore.update(config.id, McpStatus.Error.from(e))
                     }
@@ -324,6 +374,20 @@ internal class McpSessionRegistry(
         }
         session.config = updatedConfig
         return updatedConfig
+    }
+
+    private suspend fun refreshRejectedConfig(config: McpServerConfig): McpServerConfig? {
+        val rejected = config.commonOptions.oauth?.takeIf { it.enabled }?.accessToken?.takeIf { it.isNotBlank() }
+            ?: return null
+        val fresh = oauthCoordinator.ensureFreshToken(config, rejectedAccessToken = rejected)
+        val token = fresh.commonOptions.oauth?.takeIf { it.enabled }?.accessToken
+        return fresh.takeIf { !token.isNullOrBlank() && token != rejected }
+    }
+
+    private suspend fun updateFailure(config: McpServerConfig, failure: Exception) {
+        statusStore.update(config.id, if (oauthCoordinator.needsAuthorization(config, failure)) {
+            McpStatus.NeedsAuthorization
+        } else McpStatus.Error.from(failure))
     }
 
     private fun installTransportCallbacks(

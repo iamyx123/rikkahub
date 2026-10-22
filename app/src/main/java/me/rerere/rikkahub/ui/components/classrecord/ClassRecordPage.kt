@@ -80,7 +80,7 @@ internal fun ClassRecordPage(
             title = "Class Record",
             navigationIcon = { IconButton(onClick = onBack) { Icon(HugeIcons.ArrowLeft01, "返回") } },
             actions = {
-                if (state.user != null) {
+                if (state.user != null || state.error != null) {
                     TextButton(enabled = !state.busy, onClick = {
                         scope.launch {
                             try { repository.refresh(); notice = "账号权限与功能目录已刷新" }

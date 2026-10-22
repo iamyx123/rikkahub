@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.ui.pages.chat
 
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import android.view.ViewParent
 import android.view.Window
@@ -69,6 +70,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -77,6 +79,7 @@ import me.rerere.ui.toast.ToastType
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
@@ -122,7 +125,7 @@ import me.rerere.rikkahub.ui.components.ai.ChatAttachmentPickerActions
 import me.rerere.rikkahub.ui.components.ai.rememberChatAttachmentPickerActions
 import me.rerere.rikkahub.ui.components.ai.rememberScreenshotCaptureAction
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
-import me.rerere.rikkahub.ui.components.ui.permission.PermissionReadMediaImages
+import me.rerere.rikkahub.ui.components.ui.permission.photoLibraryPermissions
 import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.miaomiao.MiaomiaoImportBus
@@ -138,6 +141,9 @@ import me.rerere.rikkahub.utils.base64Decode
 import me.rerere.rikkahub.utils.isAllowedFileType
 import me.rerere.rikkahub.utils.navigateToChatPage
 import me.rerere.rikkahub.utils.queryLatestPhotoGroup
+import me.rerere.rikkahub.utils.PhotoLibraryAccess
+import me.rerere.rikkahub.utils.currentPhotoLibraryAccess
+import me.rerere.rikkahub.utils.photoLibraryPermissionNames
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
@@ -773,9 +779,47 @@ private fun ChatFilesPickerSheet(
     }
 
     // 读取相册（导入最新一组照片）
-    val mediaPermission = rememberPermissionState(PermissionReadMediaImages)
+    val mediaPermission = rememberPermissionState(photoLibraryPermissions())
     PermissionManager(permissionState = mediaPermission)
     var showPhotoImportConfig by remember { mutableStateOf(false) }
+    var photoAccess by remember { mutableStateOf(context.currentPhotoLibraryAccess()) }
+    var photoSelectionInFlight by rememberSaveable { mutableStateOf(false) }
+    val photoLifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(photoLifecycleOwner, context, mediaPermission) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                mediaPermission.refreshPermissionStates()
+                photoAccess = context.currentPhotoLibraryAccess()
+            }
+        }
+        photoLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { photoLifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    // Reselection is an explicit user action. Include both permissions even if partial access
+    // was already granted; ordinary imports below never ask to upgrade an existing partial grant.
+    val photoSelectionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        photoSelectionInFlight = false
+        mediaPermission.refreshPermissionStates()
+        photoAccess = context.currentPhotoLibraryAccess()
+    }
+    val reselectPhotos: () -> Unit = {
+        photoAccess = context.currentPhotoLibraryAccess()
+        mediaPermission.refreshPermissionStates()
+        if (!photoSelectionInFlight && !mediaPermission.isRequestInFlight) {
+            try {
+                if (photoAccess == PhotoLibraryAccess.FULL) {
+                    // Re-requesting an already full grant returns synchronously without a picker.
+                    mediaPermission.openAppSettings()
+                } else {
+                    photoSelectionInFlight = true
+                    photoSelectionLauncher.launch(photoLibraryPermissionNames(Build.VERSION.SDK_INT).toTypedArray())
+                }
+            } catch (failure: Exception) {
+                photoSelectionInFlight = false
+                toaster.show(failure.message ?: "无法打开照片授权，请稍后重试", type = ToastType.Error)
+            }
+        }
+    }
 
     val screenshotCapture = rememberScreenshotCaptureAction(
         inputState = inputState,
@@ -854,27 +898,38 @@ private fun ChatFilesPickerSheet(
 
     // 导入相册「最新一组照片」：需要读取相册权限
     val onImportLatestPhotos: () -> Unit = {
-        if (mediaPermission.allPermissionsGranted) {
+        photoAccess = context.currentPhotoLibraryAccess()
+        mediaPermission.refreshPermissionStates()
+        if (photoAccess != PhotoLibraryAccess.NONE) {
             scope.launch {
-                val minutes = setting.displaySetting.photoImportGroupMinutes
-                val uris = withContext(Dispatchers.IO) { queryLatestPhotoGroup(context, minutes) }
-                if (uris.isEmpty()) {
-                    toaster.show("相册里没有找到照片", type = ToastType.Warning)
-                } else {
-                    val localUris = withContext(Dispatchers.IO) {
-                        filesManager.createChatFilesByContents(uris)
+                try {
+                    val minutes = setting.displaySetting.photoImportGroupMinutes
+                    val (currentAccess, uris) = withContext(Dispatchers.IO) {
+                        val access = context.currentPhotoLibraryAccess()
+                        if (access == PhotoLibraryAccess.NONE) throw SecurityException("照片访问权限已变更，请重新选择可访问照片。")
+                        access to queryLatestPhotoGroup(context, minutes)
                     }
-                    if (localUris.isEmpty()) {
-                        toaster.show("照片读取失败", type = ToastType.Error)
+                    photoAccess = currentAccess
+                    if (uris.isEmpty()) {
+                        toaster.show(if (currentAccess == PhotoLibraryAccess.PARTIAL) "所选照片中没有可导入的照片，长按“导入照片”可重新选择。" else "相册里没有找到照片", type = ToastType.Warning)
                     } else {
-                        inputState.addImages(localUris)
-                        toaster.show("已导入最新 ${localUris.size} 张照片", type = ToastType.Success)
-                        dismissAll()
-                        inputState.requestInputFocus()
+                        val localUris = withContext(Dispatchers.IO) { filesManager.createChatFilesByContents(uris) }
+                        if (localUris.isEmpty()) toaster.show("照片读取失败", type = ToastType.Error)
+                        else {
+                            inputState.addImages(localUris)
+                            val suffix = if (currentAccess == PhotoLibraryAccess.PARTIAL) "（仅所选照片）" else ""
+                            toaster.show("已导入最新 ${localUris.size} 张照片$suffix", type = ToastType.Success)
+                            dismissAll()
+                            inputState.requestInputFocus()
+                        }
                     }
+                } catch (failure: Exception) {
+                    if (failure is CancellationException) throw failure
+                    photoAccess = context.currentPhotoLibraryAccess()
+                    toaster.show(failure.message ?: "照片读取失败，请检查照片访问权限", type = ToastType.Error)
                 }
             }
-        } else {
+        } else if (!photoSelectionInFlight) {
             mediaPermission.requestPermissions()
         }
     }
@@ -1006,6 +1061,19 @@ private fun ChatFilesPickerSheet(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Text(
+                        text = when (photoAccess) {
+                            PhotoLibraryAccess.FULL -> "当前可读取全部相册照片。"
+                            PhotoLibraryAccess.PARTIAL -> "当前只能读取您已选择的照片，最新一组也只在这些照片内计算。"
+                            PhotoLibraryAccess.NONE -> "当前没有照片访问权限，请先选择允许访问的照片。"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        TextButton(enabled = !photoSelectionInFlight && !mediaPermission.isRequestInFlight, onClick = reselectPhotos) {
+                            Text(if (photoSelectionInFlight) "正在选择…" else if (photoAccess == PhotoLibraryAccess.FULL) "管理相册权限" else "重新选择可访问照片")
+                        }
+                    }
                     androidx.compose.foundation.layout.Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
@@ -1112,11 +1180,15 @@ private fun TopBar(
         actions = {
             ReadingPowerButton(
                 enabled = settings.readingPowerEnabled,
+                noticeAcknowledged = settings.readingPowerNoticeAcknowledged,
                 delaySeconds = settings.readingPowerDelaySeconds,
                 state = readingState,
                 onEnabledChange = { enabled ->
                     if (enabled) readingPower.requireAccess()
-                    settingsStore.update { it.copy(readingPowerEnabled = enabled) }
+                    settingsStore.update { it.copy(
+                        readingPowerEnabled = enabled,
+                        readingPowerNoticeAcknowledged = it.readingPowerNoticeAcknowledged || enabled || it.readingPowerEnabled,
+                    ) }
                     readingPower.configure(enabled, settingsStore.settingsFlow.value.readingPowerDelaySeconds)
                     if (!enabled) readingPower.beforeNetwork()
                 },

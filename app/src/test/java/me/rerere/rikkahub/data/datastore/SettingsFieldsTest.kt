@@ -55,6 +55,7 @@ class SettingsFieldsTest {
         assertEquals(false, stored["dynamic_color"])
         assertEquals(true, stored["reading_power_enabled"])
         assertEquals(45, stored["reading_power_delay_seconds"])
+        assertEquals(true, stored["reading_power_notice_acknowledged"])
         assertEquals(9090, stored["web_server_port"])
         assertEquals(1.5f, stored["default_tts_playback_speed"])
         assertEquals("title", stored["title_prompt"])
@@ -79,6 +80,7 @@ class SettingsFieldsTest {
         assertEquals(true, settings.dynamicColor)
         assertEquals(false, settings.readingPowerEnabled)
         assertEquals(30, settings.readingPowerDelaySeconds)
+        assertEquals(false, settings.readingPowerNoticeAcknowledged)
         assertEquals(8080, settings.webServerPort)
         assertEquals(null, settings.interactiveUiPrompt)
     }
@@ -88,6 +90,17 @@ class SettingsFieldsTest {
         val preferences = mutablePreferencesOf(SettingsStore.FAST_MODEL_REASONING_LEVEL to "REMOVED_LEVEL")
 
         assertEquals(ReasoningLevel.AUTO, preferences.toSettings().fastModelReasoningLevel)
+    }
+
+    @Test
+    fun `acknowledged reading power explanation survives disabling and restoring preferences`() {
+        val disabled = SAMPLE.copy(readingPowerEnabled = false, readingPowerNoticeAcknowledged = true)
+        val preferences = mutablePreferencesOf().apply { putSettings(disabled) }
+        val restored = preferences.toSettings()
+        assertEquals(false, restored.readingPowerEnabled)
+        assertEquals(true, restored.readingPowerNoticeAcknowledged)
+        preferences.putSettings(restored.copy(readingPowerDelaySeconds = 90), persisted = restored)
+        assertEquals(true, preferences.toSettings().readingPowerNoticeAcknowledged)
     }
 
     @Test
@@ -123,6 +136,7 @@ private val SAMPLE = Settings(
     developerMode = true,
     readingPowerEnabled = true,
     readingPowerDelaySeconds = 45,
+    readingPowerNoticeAcknowledged = true,
     displaySetting = DisplaySetting(userNickname = "me"),
     networkSetting = NetworkSetting(userAgent = "agent"),
     favoriteModels = listOf(id(30)),
@@ -182,6 +196,7 @@ private val STORED_KEYS = setOf(
     "developer_mode",
     "reading_power_enabled",
     "reading_power_delay_seconds",
+    "reading_power_notice_acknowledged",
     "favorite_models",
     "chat_model",
     "fast_model",

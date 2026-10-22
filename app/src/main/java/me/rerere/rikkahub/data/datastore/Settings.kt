@@ -36,6 +36,8 @@ data class Settings(
     val developerMode: Boolean = false,
     val readingPowerEnabled: Boolean = false,
     val readingPowerDelaySeconds: Int = 30,
+    // Acknowledges the app explanation only; actual Root access is always checked separately.
+    val readingPowerNoticeAcknowledged: Boolean = false,
     val displaySetting: DisplaySetting = DisplaySetting(),
     val networkSetting: NetworkSetting = NetworkSetting(),
     val favoriteModels: List<Uuid> = emptyList(),

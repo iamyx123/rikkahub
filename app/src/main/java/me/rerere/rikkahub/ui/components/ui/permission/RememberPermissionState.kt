@@ -1,16 +1,18 @@
 package me.rerere.rikkahub.ui.components.ui.permission
 
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import me.rerere.rikkahub.utils.getComponentActivity
 
 /**
  * 创建并记住权限状态
@@ -51,12 +53,15 @@ fun rememberPermissionState(
     permissions: Set<PermissionInfo>
 ): PermissionState {
     val context = LocalContext.current
-    val activity = context as? ComponentActivity
+    val activity = context.getComponentActivity()
         ?: throw IllegalStateException("rememberPermissionState 必须在 ComponentActivity 中使用")
 
-    // 创建权限状态对象
-    val permissionState = remember(permissions) {
-        PermissionState(permissions, context, activity)
+    val permissionKey = permissions.map { it.permission }.distinct().sorted().joinToString("|")
+    val latestPermissions = rememberUpdatedState(permissions)
+    val requestTracker = rememberSaveable(permissionKey, saver = PermissionRequestTracker.Saver) { PermissionRequestTracker() }
+    // Label lambdas can change without invalidating a pending system result.
+    val permissionState = remember(permissionKey, activity, requestTracker) {
+        PermissionState({ latestPermissions.value }, AndroidPermissionAccess(context, activity), requestTracker)
     }
 
     // 多个权限请求启动器
@@ -70,24 +75,18 @@ fun rememberPermissionState(
     val singlePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        // 获取最后请求的权限（通过当前rationale权限或者denied权限推断）
-        val lastRequestedPermission = permissionState.currentRationalePermissions.firstOrNull()?.permission
-            ?: permissionState.deniedPermissions.firstOrNull()?.permission
-
-        lastRequestedPermission?.let { permission ->
-            permissionState.handleSinglePermissionResult(permission, granted)
-        }
+        permissionState.handleSinglePermissionResult(granted)
     }
 
     // 设置启动器
-    LaunchedEffect(multiplePermissionLauncher, singlePermissionLauncher) {
+    LaunchedEffect(permissionState, multiplePermissionLauncher, singlePermissionLauncher) {
         permissionState.setPermissionLaunchers(multiplePermissionLauncher, singlePermissionLauncher)
     }
 
     // 监听生命周期变化，更新权限状态
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, permissionState) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> {
@@ -113,7 +112,7 @@ fun rememberPermissionState(
     }
 
     // 初始化时更新权限状态
-    LaunchedEffect(Unit) {
+    LaunchedEffect(permissionState) {
         permissionState.updatePermissionStates()
     }
 

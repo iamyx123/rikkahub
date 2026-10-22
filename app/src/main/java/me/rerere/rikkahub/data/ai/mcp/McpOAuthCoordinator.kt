@@ -2,11 +2,14 @@ package me.rerere.rikkahub.data.ai.mcp
 
 import android.content.Context
 import android.util.Log
+import io.ktor.client.plugins.ResponseException
+import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpError
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -16,6 +19,7 @@ import me.rerere.oauth.OAuthLoopbackCallbackServer
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import java.util.concurrent.ConcurrentHashMap
+import java.io.IOException
 import kotlin.time.Duration.Companion.minutes
 import kotlin.uuid.Uuid
 
@@ -28,6 +32,11 @@ internal const val MCP_OAUTH_REDIRECT_URI =
 // 托管在 GitHub Pages 上的 Client ID Metadata Document，其 redirect_uris 必须与 MCP_OAUTH_REDIRECT_URI 一致
 internal const val MCP_OAUTH_CLIENT_METADATA_URL = "https://rikkahub.github.io/oauth/client.json"
 private val OAUTH_CALLBACK_TIMEOUT = 5.minutes
+
+internal class McpTokenRefreshException(
+    val authorizationRequired: Boolean,
+    cause: Exception,
+) : IOException(if (authorizationRequired) "MCP 登录已失效，请重新授权。" else "MCP 登录刷新暂时失败，已保留会话，请稍后重试。", cause)
 
 /**
  * 负责 MCP OAuth 的授权、令牌刷新与持久化。
@@ -74,6 +83,7 @@ internal class McpOAuthCoordinator(
     }
 
     suspend fun clearAuthorization(config: McpServerConfig): McpServerConfig {
+        authorizationJobs.remove(config.id)?.cancel()
         persistOAuthState(config.id, null)
         return settingsStore.settingsFlow.value.mcpServers.find { it.id == config.id }
             ?: config.clone(commonOptions = config.commonOptions.copy(oauth = null))
@@ -82,21 +92,30 @@ internal class McpOAuthCoordinator(
     /**
      * 按 serverId 串行刷新。获得锁后重新读取配置，避免并发工具调用重复使用同一个 refresh token。
      */
-    suspend fun ensureFreshToken(configInput: McpServerConfig): McpServerConfig {
+    suspend fun ensureFreshToken(configInput: McpServerConfig, rejectedAccessToken: String? = null): McpServerConfig =
+        // An issued refresh may rotate its token. Stopping a tool call must not cancel its persistence.
+        appScope.async(Dispatchers.IO) { refreshTokenLocked(configInput, rejectedAccessToken) }.await()
+
+    private suspend fun refreshTokenLocked(configInput: McpServerConfig, rejectedAccessToken: String?): McpServerConfig {
         val lock = refreshLocks.computeIfAbsent(configInput.id) { Mutex() }
         return lock.withLock {
             val config = settingsStore.settingsFlow.value.mcpServers.find { it.id == configInput.id }
-                ?: configInput
+                ?: return@withLock configInput
+            // A queued request belongs to its original resource, never refresh a newly edited URL.
+            if (config.serverUrl != configInput.serverUrl ||
+                config.commonOptions.headers.any { it.first.equals("Authorization", ignoreCase = true) }
+            ) return@withLock config
             val oauth = config.commonOptions.oauth ?: return@withLock config
             if (!oauth.enabled || oauth.refreshToken.isNullOrBlank()) return@withLock config
 
             val expired = oauth.expiresAt > 0 &&
                 System.currentTimeMillis() >= oauth.expiresAt - TOKEN_REFRESH_LEEWAY_MS
-            if (!oauth.accessToken.isNullOrBlank() && !expired) return@withLock config
+            val rejected = rejectedAccessToken != null && oauth.accessToken == rejectedAccessToken
+            if (!oauth.accessToken.isNullOrBlank() && !expired && !rejected) return@withLock config
 
             val tokenEndpoint = oauth.tokenEndpoint ?: return@withLock config
             val clientId = oauth.clientId ?: return@withLock config
-            runCatching {
+            try {
                 val token = oauthClient.refreshToken(
                     OAuthHttpClient.RefreshTokenRequest(
                         tokenEndpoint = tokenEndpoint,
@@ -113,11 +132,23 @@ internal class McpOAuthCoordinator(
                     expiresAt = computeExpiry(token.expiresIn),
                     scope = token.scope ?: oauth.scope,
                 )
-                persistOAuthState(config.id, updated)
-                config.clone(commonOptions = config.commonOptions.copy(oauth = updated))
-            }.getOrElse {
-                Log.w(TAG, "Token refresh failed for ${config.commonOptions.name}: ${it.message}")
-                config
+                // A logout, authorization, or URL edit during the request must win over this old refresh.
+                settingsStore.update { latest ->
+                    latest.copy(mcpServers = latest.mcpServers.map { server ->
+                        if (server.id == config.id && server.serverUrl == config.serverUrl && server.commonOptions.oauth == oauth) {
+                            server.clone(commonOptions = server.commonOptions.copy(oauth = updated))
+                        } else server
+                    })
+                }
+                settingsStore.settingsFlow.value.mcpServers.find { it.id == config.id } ?: configInput
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                throw McpTokenRefreshException(
+                    authorizationRequired = looksUnauthorized(failure) ||
+                        Regex("(?i)\\binvalid_grant\\b").containsMatchIn(failure.message.orEmpty()),
+                    cause = failure,
+                )
             }
         }
     }
@@ -126,12 +157,9 @@ internal class McpOAuthCoordinator(
         if (config.commonOptions.headers.any { it.first.equals("Authorization", ignoreCase = true) }) {
             return false
         }
-        if (looksUnauthorized(error)) return true
-        return runCatching { discoveryClient.discoverProtectedResource(config.serverUrl) }
-            .onFailure {
-                Log.i(TAG, "OAuth probe failed for ${config.commonOptions.name}: ${it.message}")
-            }
-            .isSuccess
+        if (error is McpTokenRefreshException) return error.authorizationRequired
+        // Metadata describes capability, not a failed credential: a timeout must never request login.
+        return looksUnauthorized(error)
     }
 
     private suspend fun authorize(config: McpServerConfig, context: Context) = withContext(Dispatchers.IO) {
@@ -279,14 +307,22 @@ internal class McpOAuthCoordinator(
         }
 
     private fun looksUnauthorized(error: Throwable): Boolean {
+        // The SDK's StreamableHttpError may contain only the server body, without "401" in its message.
+        val status = generateSequence(error) { it.cause }.mapNotNull {
+            when (it) {
+                is ResponseException -> it.response.status.value
+                is StreamableHttpError -> it.code?.takeIf { code -> code in 100..599 }
+                else -> null
+            }
+        }.firstOrNull()
+        if (status != null) return status == 401
         val message = generateSequence(error) { it.cause }
             .mapNotNull { it.message }
             .joinToString(" ")
             .lowercase()
-        return message.contains("401") ||
-            message.contains("unauthorized") ||
-            message.contains("invalid_token") ||
-            message.contains("invalid access token") ||
-            message.contains("missing or invalid")
+        return Regex("\\bunauthorized\\b|\\binvalid_token\\b|\\binvalid access token\\b|" +
+            "\\bhttp(?:/\\d(?:\\.\\d)?)?\\s*(?:status(?:\\s+code)?\\s*)?[:=]?\\s*401\\b|" +
+            "\\b(?:status|response)(?:\\s+code)?\\s*[:=]?\\s*401\\b|\\b401\\s+unauthorized\\b")
+            .containsMatchIn(message)
     }
 }

@@ -88,20 +88,33 @@ class ClassRecordRepository(
     }
 
     @Volatile private var connection = Connection(classRecordOrigin(CLASS_RECORD_ORIGIN), false)
+    @Volatile private var restorePending = true
 
     init {
         runCatching {
-            val saved = sessionStore.read()?.let(json::parseToJsonElement)?.jsonObject ?: return@runCatching
-            val origin = classRecordOrigin(saved.crString("origin") ?: CLASS_RECORD_ORIGIN)
-            val cookies = (saved["cookies"] as? JsonArray).orEmpty().mapNotNull {
-                Cookie.parse(origin, it.jsonPrimitive.content)
-            }
-            connection = Connection(origin, true, cookies)
-            mutableState.update { it.copy(baseUrl = origin.toString().trimEnd('/')) }
-            if (cookies.isNotEmpty()) appScope.launch {
+            if (restoreSavedConnection()) appScope.launch {
                 try { refresh() } catch (_: Exception) { /* Presented in state; never log account data. */ }
             }
+        }.onFailure {
+            mutableState.update { it.copy(error = "保存的登录状态暂时无法读取，请解锁设备后点刷新重试。") }
         }
+    }
+
+    private fun restoreSavedConnection(): Boolean = synchronized(this) {
+        if (!restorePending) return@synchronized false
+        val saved = sessionStore.read()?.let(json::parseToJsonElement)?.jsonObject
+        if (saved == null) {
+            restorePending = false
+            return@synchronized false
+        }
+        val origin = classRecordOrigin(saved.crString("origin") ?: CLASS_RECORD_ORIGIN)
+        val cookies = (saved["cookies"] as? JsonArray).orEmpty().mapNotNull {
+            Cookie.parse(origin, it.jsonPrimitive.content)
+        }
+        connection = Connection(origin, true, cookies)
+        restorePending = false
+        mutableState.update { it.copy(baseUrl = origin.toString().trimEnd('/')) }
+        cookies.isNotEmpty()
     }
 
     private fun assertCurrent(current: Connection) {
@@ -124,8 +137,9 @@ class ClassRecordRepository(
         connection.client.dispatcher.cancelAll()
         val current = Connection(origin, remember)
         synchronized(this) {
-            connection = current
             sessionStore.write(null)
+            restorePending = false
+            connection = current
             mutableState.value = ClassRecordState(baseUrl = origin.toString().trimEnd('/'), busy = true)
         }
         try {
@@ -146,6 +160,7 @@ class ClassRecordRepository(
     }
 
     suspend fun refresh() {
+        if (restorePending) accountLock.withLock { withContext(Dispatchers.IO) { restoreSavedConnection() } }
         val current = connection
         mutableState.update { it.copy(busy = true, error = null) }
         try { refreshFor(current) }
@@ -157,17 +172,25 @@ class ClassRecordRepository(
     }
 
     private suspend fun refreshFor(current: Connection) {
-        val user = exchange(current, "GET", "/api/v1/auth/me").crObject()
-        val tools = exchange(current, "GET", "$CLASS_RECORD_PREFIX/tools").crObject()
-        val catalog = exchange(current, "GET", "$CLASS_RECORD_PREFIX/catalog").crObject()
-        assertCurrent(current)
-        val saved = savedDefault(current, user)
-        mutableState.update { it.copy(user = user,
-            tools = (tools["tools"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject },
-            operations = (catalog["operations"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }, error = null,
-            defaultSchoolId = saved.crString("school_id").orEmpty(), defaultClassId = saved.crString("class_id").orEmpty(),
-            defaultClassName = saved.crString("class_name").orEmpty()) }
-        persist(current)
+        refreshClassRecordAccount(
+            request = { path -> exchange(current, "GET", path).crObject() },
+            onAuthenticated = { user -> synchronized(this) {
+                assertCurrent(current)
+                val saved = savedDefault(current, user)
+                mutableState.update { it.copy(user = user, error = null,
+                    defaultSchoolId = saved.crString("school_id").orEmpty(), defaultClassId = saved.crString("class_id").orEmpty(),
+                    defaultClassName = saved.crString("class_name").orEmpty()) }
+                persist(current)
+            } },
+            onTools = { tools -> synchronized(this) {
+                assertCurrent(current)
+                mutableState.update { it.copy(tools = tools) }
+            } },
+            onOperations = { operations -> synchronized(this) {
+                assertCurrent(current)
+                mutableState.update { it.copy(operations = operations, error = null) }
+            } },
+        )
     }
 
     private fun preferenceKey(current: Connection, user: JsonObject): String =
@@ -190,7 +213,9 @@ class ClassRecordRepository(
         }
         synchronized(this) {
             assertCurrent(current)
-            val all = runCatching { preferencesStore.read()?.let(json::parseToJsonElement)?.jsonObject }.getOrNull().orEmpty().toMutableMap()
+            // A transient Keystore failure must never turn an unread account map into an empty
+            // replacement and discard other accounts' saved default classes.
+            val all = preferencesStore.read()?.let(json::parseToJsonElement)?.jsonObject.orEmpty().toMutableMap()
             all[preferenceKey(current, user)] = buildJsonObject {
                 put("school_id", selected.crString("school_id").orEmpty()); put("class_id", selected.crString("class_id").orEmpty())
                 put("class_name", selected.crString("class_name").orEmpty())
@@ -207,9 +232,14 @@ class ClassRecordRepository(
         finally {
             current.client.dispatcher.cancelAll()
             synchronized(this) {
+                restorePending = false
                 connection = Connection(current.origin, false)
-                sessionStore.write(null)
                 mutableState.value = ClassRecordState(baseUrl = current.origin.toString().trimEnd('/'))
+                try { sessionStore.write(null) }
+                catch (failure: Exception) {
+                    mutableState.update { it.copy(error = failure.message) }
+                    throw failure
+                }
             }
         }
     }
@@ -275,8 +305,14 @@ class ClassRecordRepository(
         withResponse(current, request) { response ->
             assertCurrent(current)
             if (response.code == 401) {
-                sessionStore.write(null)
-                mutableState.update { it.copy(user = null, tools = emptyList(), operations = emptyList(), error = "登录已过期，请重新登录。") }
+                synchronized(this@ClassRecordRepository) {
+                    // Validation and invalidation share the same lock as login/persist. An old
+                    // account's delayed 401 must never erase a newly saved session.
+                    assertCurrent(current)
+                    connection = Connection(current.origin, false)
+                    mutableState.value = ClassRecordState(baseUrl = current.origin.toString().trimEnd('/'), error = "登录已过期，请重新登录。")
+                    sessionStore.write(null)
+                }
                 error("登录已过期或账号密码不正确，请重新登录。")
             }
             if (!response.isSuccessful) {

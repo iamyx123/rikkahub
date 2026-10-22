@@ -4,181 +4,67 @@ import android.os.SystemClock
 import android.util.Log
 import java.io.BufferedReader
 import java.io.BufferedWriter
+import java.io.IOException
+import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.ReentrantLock
 
 /**
  * Minimal root bridge for the silent study-desktop operations. Every call goes through `su` and
  * degrades to `null`/`false` on any failure so callers can always fall back to the normal
  * (accessibility + role chooser) flow.
  *
- * Three properties keep it usable on real devices:
- *  - A **persistent** `su` shell ([RootShell]) serves every command. Spawning a fresh `su` per
- *    command made the 1.5s foreground poll re-enter the superuser gate constantly, which on Magisk
- *    means repeated prompt/log churn and ~100ms of process setup per poll.
- *  - Commands are sentinel-delimited and read on a dedicated thread, so a hung `dumpsys` cannot
- *    block the caller past its timeout and cannot deadlock on a full pipe.
- *  - [isRootAvailable] caches the probe with a short TTL instead of forever, so a first-time Magisk
- *    authorization prompt that times out does not permanently mark the device as unrooted.
+ * One verified, process-owned shell is shared by study mode and reading power. Quick probes join
+ * an existing authorization attempt without cancelling it. Explicit user grants may wait longer;
+ * failed/denied background probes back off. No command is replayed after an uncertain timeout.
  */
 object StudyRootBridge {
     private const val TAG = "StudyRootBridge"
     private const val ROLE_HOME = "android.app.role.HOME"
     private const val HOME_ACTIVITY = "me.rerere.rikkahub.StudyHomeActivity"
 
-    /** Marks the end of one command's output inside the persistent shell. */
-    private const val SENTINEL = "__RIKKA_STUDY_EOC__"
-
-    /** Short probe used for UI checks and the state machine. */
-    private const val FAST_PROBE_TIMEOUT_MS = 1_500L
-    /** Long probe that gives Magisk's first-time grant dialog time to answer. */
-    private const val GRANT_PROBE_TIMEOUT_MS = 12_000L
     /** General command timeout for everything else. */
     private const val CMD_TIMEOUT_MS = 8_000L
-    /** How long a cached root result stays fresh before a re-probe. */
-    private const val ROOT_REFRESH_MS = 30_000L
     /** Role changes are applied asynchronously by the role controller; poll for confirmation. */
     private const val ROLE_SETTLE_TIMEOUT_MS = 3_000L
     private const val ROLE_SETTLE_STEP_MS = 150L
 
-    @Volatile
-    private var rootAvailable = false
-
-    @Volatile
-    private var rootCheckedAt = 0L
-
-    @Volatile
-    private var probeInFlight = false
-
-    private val probeLock = Any()
-    private val shellLock = Any()
-
-    @Volatile
-    private var shell: RootShell? = null
+    private val sessions = StudyRootSessions(
+        launch = { argv -> ProcessBuilder(*argv).redirectErrorStream(true).start() },
+        elapsedRealtime = SystemClock::elapsedRealtime,
+        log = { Log.w(TAG, it) },
+    )
 
     /** Android user id this process runs as; `cmd role` otherwise defaults to user 0. */
     private val userId: Int by lazy { android.os.Process.myUid() / 100_000 }
 
     /**
-     * Fast cached root check. On a cold cache it probes for at most [FAST_PROBE_TIMEOUT_MS]; the
-     * result is reused for [ROOT_REFRESH_MS]. Safe to call from any thread.
+     * Read-only check of the verified live shell or an already pending handshake. Merely opening
+     * settings/resuming the app must never start su or display a superuser authorization window.
      */
-    fun isRootAvailable(): Boolean {
-        val now = SystemClock.elapsedRealtime()
-        if (now - rootCheckedAt < ROOT_REFRESH_MS) return rootAvailable
-        if (probeInFlight) return rootAvailable
-        synchronized(probeLock) {
-            if (probeInFlight) return rootAvailable
-            probeInFlight = true
-            try {
-                rootAvailable = probeRoot(FAST_PROBE_TIMEOUT_MS)
-                rootCheckedAt = SystemClock.elapsedRealtime()
-            } finally {
-                probeInFlight = false
-            }
-        }
-        return rootAvailable
-    }
+    fun isRootAvailable(): Boolean = sessions.available(allowGrant = false)
 
     /**
-     * Long probe for the silent-enable path: when the fast probe is negative it waits up to
-     * [GRANT_PROBE_TIMEOUT_MS] so Magisk's first-time authorization dialog can be answered. Call on
-     * a background thread. Warms the fast cache on success.
+     * User-initiated grant: joins one shared handshake and waits up to 60 seconds for the root
+     * manager. It never runs the short probe/fallback chain first. Call on a background thread.
      */
-    fun isRootAvailableAllowGrant(): Boolean {
-        if (isRootAvailable()) return true
-        val granted = probeRoot(GRANT_PROBE_TIMEOUT_MS)
-        rootAvailable = granted
-        rootCheckedAt = SystemClock.elapsedRealtime()
-        return granted
-    }
-
-    private fun probeRoot(timeoutMs: Long): Boolean {
-        val output = runSu("id", timeoutMs)
-        val ok = output?.contains("uid=0") == true
-        if (!ok) Log.w(TAG, "Root probe failed (timeout=${timeoutMs}ms): ${output ?: "no output"}")
-        return ok
-    }
+    fun isRootAvailableAllowGrant(): Boolean = sessions.available(allowGrant = true)
 
     /**
      * Runs a command as root and returns its stdout ("" on success without output, null on any
-     * failure or non-zero exit). Reuses one persistent `su` shell; if that shell is unusable the
-     * call falls back to a one-shot `su -c`.
+     * failure or non-zero exit). Reuses one persistent `su` shell. A timed-out or interrupted
+     * command is never automatically executed a second time.
      */
-    fun runSu(command: String, timeoutMs: Long = CMD_TIMEOUT_MS): String? {
-        session(timeoutMs)?.let { active ->
-            val result = active.exec(command, timeoutMs)
-            if (result != null) return result
-            // A dead session yields null for reasons unrelated to the command; retry once on a
-            // freshly spawned shell before giving up on the persistent path.
-            if (!active.alive) {
-                dropSession(active)
-                session(timeoutMs)?.exec(command, timeoutMs)?.let { return it }
-            }
-            return null
-        }
-        return runSuOneShot(command, timeoutMs)
-    }
+    fun runSu(command: String, timeoutMs: Long = CMD_TIMEOUT_MS): String? = sessions.exec(command, timeoutMs)
 
-    private fun session(timeoutMs: Long): RootShell? {
-        shell?.takeIf { it.alive }?.let { return it }
-        synchronized(shellLock) {
-            shell?.takeIf { it.alive }?.let { return it }
-            shell?.close()
-            shell = RootShell.open(timeoutMs)
-            return shell
-        }
-    }
-
-    private fun dropSession(dead: RootShell) {
-        synchronized(shellLock) {
-            if (shell === dead) {
-                shell?.close()
-                shell = null
-            }
-        }
-    }
-
-    /** Releases the persistent shell (called when the guard stops). */
-    fun shutdown() {
-        synchronized(shellLock) {
-            shell?.close()
-            shell = null
-        }
-    }
-
-    /** One-shot fallback for devices whose `su` refuses an interactive session. */
-    private fun runSuOneShot(command: String, timeoutMs: Long): String? {
-        val attempts = listOf(
-            arrayOf("su", "-c", command),
-            arrayOf("su", "0", "sh", "-c", command),
-        )
-        for (argv in attempts) {
-            execOnce(argv, timeoutMs)?.let { return it }
-        }
-        return null
-    }
-
-    private fun execOnce(argv: Array<String>, timeoutMs: Long): String? = runCatching {
-        val process = ProcessBuilder(*argv).redirectErrorStream(true).start()
-        val output = StringBuilder()
-        val reader = Thread {
-            runCatching {
-                process.inputStream.bufferedReader().forEachLine { output.append(it).append('\n') }
-            }
-        }
-        reader.isDaemon = true
-        reader.start()
-        if (!process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
-            runCatching { process.destroyForcibly() }
-            reader.join(500)
-            Log.w(TAG, "Command timed out (${timeoutMs}ms): ${argv.joinToString(" ")}")
-            return null
-        }
-        reader.join(500)
-        if (process.exitValue() != 0) return null
-        output.toString().trim()
-    }.getOrNull()
+    /** Explicit process-level teardown; stopping one feature must not close the shared shell. */
+    fun shutdown() = sessions.shutdown()
 
     // --- Battery whitelist ---
 
@@ -333,93 +219,221 @@ object StudyRootBridge {
     /** `Window{a1b2 u0 com.example/com.example.Main}` -> `com.example` (skips `NavigationBar0`) */
     private val WINDOW_RE = Regex("""Window\{\S+\s+u\d+\s+([A-Za-z0-9_.]+)/""")
 
-    /**
-     * One long-lived `su` shell. Commands are written to stdin and terminated by an echoed sentinel
-     * carrying the exit status, so a single stream can serve any number of commands.
-     */
-    private class RootShell private constructor(
-        private val process: Process,
-        private val stdin: BufferedWriter,
-        private val stdout: BufferedReader,
-    ) {
-        private val readerPool = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "study-root-shell").apply { isDaemon = true }
+}
+
+/** JVM-testable session ownership. Android/UI callers never own individual su processes. */
+internal class StudyRootSessions(
+    private val launch: (Array<String>) -> Process,
+    private val elapsedRealtime: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val log: (String) -> Unit = {},
+    private val fastTimeoutMs: Long = 1_500,
+    private val grantTimeoutMs: Long = 60_000,
+    private val failureCooldownMs: Long = 30_000,
+) {
+    private class Opening(deadline: Long, val grantDeadline: Long) {
+        val deadline = AtomicLong(deadline)
+        val result = CompletableFuture<StudyRootShell?>()
+        val cancelled = AtomicBoolean()
+        @Volatile var shell: StudyRootShell? = null
+    }
+
+    private val lock = Any()
+    private val opener = Executors.newSingleThreadExecutor { task -> Thread(task, "study-root-open").apply { isDaemon = true } }
+    private var current: StudyRootShell? = null
+    private var opening: Opening? = null
+    private var retryAfter = 0L
+
+    fun available(allowGrant: Boolean): Boolean = session(allowGrant, if (allowGrant) grantTimeoutMs else fastTimeoutMs, create = allowGrant)?.alive == true
+
+    fun exec(command: String, timeoutMs: Long): String? {
+        if (timeoutMs <= 0) return null
+        val deadline = elapsedRealtime() + timeoutMs
+        val active = session(allowGrant = false, waitMs = minOf(timeoutMs, fastTimeoutMs)) ?: return null
+        if (elapsedRealtime() >= deadline) return null
+        val result = try { active.exec(command) { deadline } } catch (_: Exception) {
+            active.close()
+            StudyRootResult("")
         }
+        if (!active.alive) synchronized(lock) {
+            if (current === active) {
+                current = null
+                retryAfter = elapsedRealtime() + failureCooldownMs
+            }
+        }
+        return result.output.takeIf { result.exitCode == 0 }
+    }
 
-        @Volatile
-        private var broken = false
+    private fun session(allowGrant: Boolean, waitMs: Long, create: Boolean = true): StudyRootShell? {
+        val attempt = synchronized(lock) {
+            current?.takeIf { it.alive }?.let { return it }
+            current?.close()
+            current = null
+            val pending = opening
+            if (pending != null) {
+                // A short observer may stop waiting, but cannot shorten a user's grant dialog.
+                if (allowGrant) pending.deadline.accumulateAndGet(pending.grantDeadline) { previous, granted -> maxOf(previous, granted) }
+                pending
+            } else {
+                if (!create) return null
+                if (!allowGrant && elapsedRealtime() < retryAfter) return null
+                val now = elapsedRealtime()
+                Opening(now + if (allowGrant) grantTimeoutMs else fastTimeoutMs, now + grantTimeoutMs).also {
+                    opening = it
+                    opener.execute { open(it) }
+                }
+            }
+        }
+        return try {
+            attempt.result.get(waitMs.coerceAtLeast(1), TimeUnit.MILLISECONDS)?.takeIf { it.alive }
+        } catch (_: TimeoutException) {
+            // Only the opening worker owns cancellation and its extendable deadline.
+            null
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            null
+        } catch (_: ExecutionException) {
+            null
+        }
+    }
 
-        val alive: Boolean get() = !broken && process.isAlive
+    private fun open(attempt: Opening) {
+        var verified: StudyRootShell? = null
+        try {
+            // Compatibility variants still create a persistent shell, never one su per command.
+            for (argv in listOf(arrayOf("su"), arrayOf("su", "-c", "sh"), arrayOf("su", "0", "sh"))) {
+                if (attempt.cancelled.get() || elapsedRealtime() >= attempt.deadline.get()) break
+                val process = try { launch(argv) } catch (_: IOException) { break }
+                val candidate = StudyRootShell(process, elapsedRealtime, log)
+                attempt.shell = candidate
+                if (attempt.cancelled.get()) { candidate.close(); break }
+                val probe = candidate.exec("printf '\\n'; id -u") { attempt.deadline.get() }
+                if (probe.exitCode == 0 && probe.output.lineSequence().lastOrNull { it.isNotBlank() }?.trim() == "0" && candidate.alive) {
+                    verified = candidate
+                    break
+                }
+                log("Root handshake failed (exit=${probe.exitCode}, timeout=${probe.timedOut}, live=${candidate.alive})")
+                candidate.close()
+                // Rejection, non-root uid and timeouts are definitive. Only an explicitly
+                // unsupported interactive invocation qualifies for another su syntax.
+                val unsupported = probe.output.contains(Regex("(?i)usage:|unknown option|unrecognized option|interactive.*not supported|must specify.*command")) ||
+                    (probe.exitCode == null && probe.output.isBlank() && runCatching { process.exitValue() }.getOrNull() == 0)
+                if (probe.timedOut || !unsupported || probe.output.contains(Regex("(?i)denied|not allowed|unauthorized|rejected"))) break
+            }
+        } catch (failure: Exception) {
+            log("Root session could not be opened: ${failure.javaClass.simpleName}")
+        } finally {
+            synchronized(lock) {
+                if (opening === attempt && !attempt.cancelled.get()) {
+                    current = verified
+                    opening = null
+                    retryAfter = if (verified != null) 0 else elapsedRealtime() + failureCooldownMs
+                    attempt.result.complete(verified)
+                } else {
+                    verified?.close()
+                    attempt.result.complete(null)
+                }
+            }
+            if (verified == null) attempt.shell?.close()
+        }
+    }
 
-        /** Serialized: one command at a time per shell. */
-        @Synchronized
-        fun exec(command: String, timeoutMs: Long): String? {
-            if (!alive) return null
-            return runCatching {
-                stdin.write(command)
-                stdin.write("\n")
-                // `$?` is the exit status of the command above.
-                stdin.write("echo $SENTINEL\$?")
-                stdin.write("\n")
+    /** Explicit shutdown invalidates pending grants too; a late authorization cannot resurrect it. */
+    fun shutdown() {
+        val closing = synchronized(lock) {
+            val pending = opening
+            pending?.cancelled?.set(true)
+            pending?.result?.complete(null)
+            opening = null
+            val active = current
+            current = null
+            retryAfter = 0
+            listOfNotNull(active, pending?.shell)
+        }
+        closing.forEach { it.close() }
+    }
+}
+
+private data class StudyRootResult(val output: String, val exitCode: Int? = null, val timedOut: Boolean = false)
+
+/** A command owns its framing and IO task. Killing a timed-out process always precedes stream close. */
+private class StudyRootShell(
+    private val process: Process,
+    private val elapsedRealtime: () -> Long,
+    private val log: (String) -> Unit,
+) {
+    private val stdin: BufferedWriter = process.outputStream.bufferedWriter()
+    private val stdout: BufferedReader = process.inputStream.bufferedReader()
+    private val io = Executors.newSingleThreadExecutor { task -> Thread(task, "study-root-io").apply { isDaemon = true } }
+    private val commandLock = ReentrantLock()
+    private val closed = AtomicBoolean()
+    val alive: Boolean get() = !closed.get() && runCatching { process.exitValue(); false }.getOrElse { it is IllegalThreadStateException }
+
+    fun exec(command: String, deadline: () -> Long): StudyRootResult {
+        val wait = (deadline() - elapsedRealtime()).coerceAtLeast(0)
+        val acquired = try { commandLock.tryLock(wait, TimeUnit.MILLISECONDS) }
+        catch (_: InterruptedException) { Thread.currentThread().interrupt(); false }
+        if (!acquired) return StudyRootResult("") // A queue timeout did not execute or damage the shell.
+        try {
+            if (!alive || elapsedRealtime() >= deadline()) return StudyRootResult("")
+            val marker = "__RIKKA_ROOT_${UUID.randomUUID().toString().replace("-", "")}__"
+            val task = io.submit<StudyRootResult> {
+                stdin.write("{\n:\n$command\n}\nprintf '\\n$marker:%s\\n' \"\$?\"\n")
                 stdin.flush()
-                val future = readerPool.submit<String?> { readUntilSentinel() }
-                try {
-                    future.get(timeoutMs, TimeUnit.MILLISECONDS)
-                } catch (timeout: Exception) {
-                    // The reader thread is still parked on this command's output; the stream can no
-                    // longer be trusted for subsequent commands.
-                    future.cancel(true)
-                    Log.w(TAG, "Root command timed out (${timeoutMs}ms): $command")
-                    close()
-                    null
+                val output = StringBuilder()
+                while (true) {
+                    val line = stdout.readLine() ?: return@submit StudyRootResult(output.toString().trim())
+                    if (line.startsWith("$marker:")) {
+                        val code = line.removePrefix("$marker:").toIntOrNull()
+                        if (code != null) return@submit StudyRootResult(output.toString().trim(), code)
+                    }
+                    if (output.length + line.length <= 1024 * 1024) output.append(line).append('\n')
+                    else throw IOException("Root command output exceeded its limit")
                 }
-            }.getOrElse {
+                @Suppress("UNREACHABLE_CODE")
+                StudyRootResult("")
+            }
+            try {
+                while (true) {
+                    val remaining = deadline() - elapsedRealtime()
+                    if (remaining <= 0) {
+                        task.cancel(true)
+                        close()
+                        log("Root command timed out; it will not be replayed")
+                        return StudyRootResult("", timedOut = true)
+                    }
+                    try {
+                        val result = task.get(minOf(remaining, 100), TimeUnit.MILLISECONDS)
+                        if (result.exitCode == null) close()
+                        return result
+                    } catch (_: TimeoutException) { /* A user grant may extend this same handshake. */ }
+                }
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                task.cancel(true)
                 close()
-                null
+                return StudyRootResult("")
+            } catch (_: ExecutionException) {
+                close()
+                return StudyRootResult("")
             }
+        } finally {
+            commandLock.unlock()
         }
+    }
 
-        private fun readUntilSentinel(): String? {
-            val output = StringBuilder()
-            while (true) {
-                val line = stdout.readLine() ?: run {
-                    broken = true
-                    return null
-                }
-                if (line.startsWith(SENTINEL)) {
-                    val code = line.removePrefix(SENTINEL).trim().toIntOrNull() ?: -1
-                    return if (code == 0) output.toString().trim() else null
-                }
-                output.append(line).append('\n')
-            }
-        }
-
-        fun close() {
-            broken = true
+    fun close() {
+        if (!closed.compareAndSet(false, true)) return
+        // BufferedReader.close can wait on a blocked readLine lock. Never do that before killing
+        // the process, or on the timeout caller's thread (libcore and desktop JVM both lock it).
+        io.shutdownNow()
+        Thread({
+            // Some Process implementations also close pipe wrappers from destroy(); keep those
+            // potentially blocking implementation details off the command/authorization caller.
+            runCatching { process.destroyForcibly() }
+            runCatching { process.destroy() }
             runCatching { stdin.close() }
             runCatching { stdout.close() }
-            runCatching { process.destroyForcibly() }
-            runCatching { readerPool.shutdownNow() }
-        }
-
-        companion object {
-            fun open(timeoutMs: Long): RootShell? = runCatching {
-                val process = ProcessBuilder("su").redirectErrorStream(true).start()
-                val shell = RootShell(
-                    process = process,
-                    stdin = process.outputStream.bufferedWriter(),
-                    stdout = process.inputStream.bufferedReader(),
-                )
-                // Confirm the shell really is root before handing it out; `su` on a non-rooted
-                // device may start and immediately die, or start as the unprivileged user.
-                val id = shell.exec("id", timeoutMs)
-                if (id?.contains("uid=0") != true) {
-                    shell.close()
-                    null
-                } else {
-                    shell
-                }
-            }.getOrNull()
-        }
+            runCatching { process.errorStream.close() }
+        }, "study-root-close").apply { isDaemon = true; start() }
     }
 }

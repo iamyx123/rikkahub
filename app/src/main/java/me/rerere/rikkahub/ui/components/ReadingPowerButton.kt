@@ -56,6 +56,7 @@ import me.rerere.rikkahub.data.power.ReadingPowerState
 @Composable
 fun ReadingPowerButton(
     enabled: Boolean,
+    noticeAcknowledged: Boolean,
     delaySeconds: Int,
     state: ReadingPowerState,
     onEnabledChange: suspend (Boolean) -> Unit,
@@ -65,7 +66,6 @@ fun ReadingPowerButton(
     val scope = rememberCoroutineScope()
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showRootNotice by rememberSaveable { mutableStateOf(false) }
-    var rootNoticeAccepted by rememberSaveable { mutableStateOf(enabled) }
     var busy by remember { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
     val status = readingPowerStatus(state.phase, state.ownsFlightMode, state.flightModeEnabled)
@@ -73,12 +73,12 @@ fun ReadingPowerButton(
     val visual = readingPowerButtonVisual(enabled, state.flightModeEnabled, state.phase, error != null)
 
     fun changeEnabled(value: Boolean) {
+        if (busy) return
+        busy = true
         scope.launch {
-            busy = true
             actionError = null
             try {
                 onEnabledChange(value)
-                if (value) rootNoticeAccepted = true
                 showRootNotice = false
             } catch (failure: Exception) {
                 if (failure is CancellationException) throw failure
@@ -108,7 +108,7 @@ fun ReadingPowerButton(
                 onLongClick = { showSettings = true },
                 onClick = {
                     if (busy) showSettings = true
-                    else if (!enabled && !rootNoticeAccepted) {
+                    else if (!enabled && !noticeAcknowledged) {
                         actionError = null
                         showRootNotice = true
                     } else changeEnabled(!enabled)

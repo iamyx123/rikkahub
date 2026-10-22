@@ -43,7 +43,8 @@ class StudyRootForegroundGuard(private val manager: StudyDesktopManager) {
         allowCache = null
         repeatOffender = null
         repeatCount = 0
-        StudyRootBridge.shutdown()
+        // The process-wide Root session is also used by reading power saving. Stopping this
+        // guard must not discard an already granted session or interrupt another Root command.
     }
 
     private suspend fun run() {

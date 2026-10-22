@@ -110,6 +110,7 @@ class SettingsStore internal constructor(
         val DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
         val READING_POWER_ENABLED = booleanPreferencesKey("reading_power_enabled")
         val READING_POWER_DELAY_SECONDS = intPreferencesKey("reading_power_delay_seconds")
+        val READING_POWER_NOTICE_ACKNOWLEDGED = booleanPreferencesKey("reading_power_notice_acknowledged")
 
         // 阅读书签：按会话 id 分组持久化（不放进 Settings 大对象，避免每次加书签触发全局重组）
         val CONVERSATION_BOOKMARKS = stringPreferencesKey("conversation_bookmarks")

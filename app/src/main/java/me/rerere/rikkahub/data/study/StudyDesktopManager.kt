@@ -76,8 +76,8 @@ class StudyDesktopManager(context: Context) {
     init {
         migrateLegacyStateIfNeeded()
         refreshPersistedStateFlows()
-        // Warm the root-probe cache off the main thread so UI and the state machine never probe
-        // synchronously during composition / onCreate.
+        // Only observe an already verified session. Merely launching the app must not open su
+        // or show the superuser manager's authorization window.
         rootScope.launch { _rootAvailable.value = StudyRootBridge.isRootAvailable() }
     }
 
@@ -365,7 +365,7 @@ class StudyDesktopManager(context: Context) {
      */
     fun prefersRootGuard(): Boolean = rootGuardActive() || StudyRootBridge.isRootAvailable()
 
-    /** Re-probes root availability off the main thread and publishes it to [rootAvailable]. */
+    /** Publishes an existing verified session without starting an authorization request. */
     fun refreshRootAvailability() {
         rootScope.launch { _rootAvailable.value = StudyRootBridge.isRootAvailable() }
     }

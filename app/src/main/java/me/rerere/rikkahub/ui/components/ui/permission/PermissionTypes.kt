@@ -94,3 +94,15 @@ val PermissionReadMediaImages = PermissionInfo(
     usage = { Text("用于读取相册中最新的一组照片并添加到对话") },
     required = false
 )
+
+/** Android 14 can grant only selected photos without granting the whole photo library. */
+val PermissionReadSelectedImages = PermissionInfo(
+    permission = Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+    displayName = { Text("所选照片") },
+    usage = { Text("允许只导入您选择的照片，无需开放整个相册") },
+    required = false,
+)
+
+fun photoLibraryPermissions(sdkInt: Int = Build.VERSION.SDK_INT): Set<PermissionInfo> =
+    if (sdkInt >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) setOf(PermissionReadMediaImages, PermissionReadSelectedImages)
+    else setOf(PermissionReadMediaImages)

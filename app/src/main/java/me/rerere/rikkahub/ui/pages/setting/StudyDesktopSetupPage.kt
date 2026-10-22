@@ -213,9 +213,9 @@ fun StudyDesktopSetupPage() {
                         )
                         item(
                             leadingContent = { Icon(HugeIcons.Settings03, null) },
-                            trailingContent = { SetupStatus(rootAvailable, "可用", "不可用") },
+                            trailingContent = { SetupStatus(rootAvailable, "已授权", "未验证") },
                             headlineContent = { Text("Root 静默开启") },
-                            supportingContent = { Text("有 root 时无需系统确认弹窗，自动设为默认桌面、加入电池白名单并以 root 轮询接管前台拦截。") },
+                            supportingContent = { Text("点下方按钮检查并授权 Root 后，可自动设为默认桌面、加入电池白名单并以 Root 接管前台拦截。查看本页不会发起授权。") },
                         )
                         // Shown even when root is available: root can fail on a specific ROM, and
                         // these two are the fallback path's hard requirements.
@@ -227,7 +227,7 @@ fun StudyDesktopSetupPage() {
                             supportingContent = {
                                 Text(
                                     if (rootAvailable) "有 root 时不需要；作为 root 失败时的备用方式。"
-                                    else "无 root 时使用；仅检测前台应用包名和窗口类型，不读取窗口内容。",
+                                    else "普通方式使用；仅检测前台应用包名和窗口类型，不读取窗口内容。",
                                 )
                             },
                         )
@@ -239,7 +239,7 @@ fun StudyDesktopSetupPage() {
                             supportingContent = {
                                 Text(
                                     if (rootAvailable) "Root 静默开启会自动加入，无需手动授权。"
-                                    else "无 root 时的必要步骤，可降低厂商系统终止后台守护的概率。",
+                                    else "普通方式的必要步骤，可降低厂商系统终止后台守护的概率。",
                                 )
                             },
                         )
@@ -331,21 +331,19 @@ fun StudyDesktopSetupPage() {
 
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (rootAvailable) {
-                            Button(
-                                onClick = { onRootEnableClick() },
-                                enabled = !rootBusy,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(if (rootBusy) "正在开启…" else "Root 静默开启（推荐）")
-                            }
-                            Text(
-                                text = "无需系统弹窗；失败时可继续用下面的普通方式。",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 4.dp),
-                            )
+                        Button(
+                            onClick = { onRootEnableClick() },
+                            enabled = !rootBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(if (rootBusy) "正在开启…" else if (rootAvailable) "Root 静默开启（推荐）" else "检查 Root 并开启")
                         }
+                        Text(
+                            text = "首次使用需要超级用户管理器授权；已授权会话可复用。失败时可继续用下面的普通方式。",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        )
                         // Always available: root can fail on a specific ROM, and the manual flow must
                         // stay reachable rather than leaving a dead-end root-only button.
                         Button(

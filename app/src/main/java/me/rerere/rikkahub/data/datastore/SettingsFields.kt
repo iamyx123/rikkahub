@@ -69,6 +69,7 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         plain(DEVELOPER_MODE, Settings::developerMode) { copy(developerMode = it) },
         plain(READING_POWER_ENABLED, Settings::readingPowerEnabled) { copy(readingPowerEnabled = it) },
         plain(READING_POWER_DELAY_SECONDS, Settings::readingPowerDelaySeconds) { copy(readingPowerDelaySeconds = it) },
+        plain(READING_POWER_NOTICE_ACKNOWLEDGED, Settings::readingPowerNoticeAcknowledged) { copy(readingPowerNoticeAcknowledged = it) },
 
         // 模型选择
         json(FAVORITE_MODELS, Settings::favoriteModels) { copy(favoriteModels = it) },
