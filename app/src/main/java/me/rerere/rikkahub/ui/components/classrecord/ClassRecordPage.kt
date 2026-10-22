@@ -573,7 +573,7 @@ private fun ClassRecordLibrary(
                             if ("school_id" in schema["properties"].objectOrEmpty()) quickSchool = updated.string("school_id")
                             if ("class_id" in schema["properties"].objectOrEmpty()) quickClass = updated.string("class_id")
                             selectedArguments = selected.string("name") to updated
-                        }, validationState = formValidation) }
+                        }, validationState = formValidation, showTechnicalDetails = showToolDetails) }
                     }
                     Button(enabled = !busy && formValidation.error == null, modifier = Modifier.fillMaxWidth(), onClick = {
                         val failure = formValidation.error ?: validateClassRecordSchema(schema, arguments)

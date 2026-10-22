@@ -79,6 +79,7 @@ internal fun classRecordRequestDraftError(
 ): String? = parameterError ?: if (editingRawBody) bodyDraft.error else bodyFormError
 
 private val LocalClassRecordFormValidation = staticCompositionLocalOf<ClassRecordFormValidationState?> { null }
+private val LocalClassRecordTechnicalDetails = staticCompositionLocalOf { false }
 internal fun JsonElement?.objectOrEmpty() = this as? JsonObject ?: JsonObject(emptyMap())
 internal fun JsonElement?.arrayOrEmpty() = this as? JsonArray ?: JsonArray(emptyList())
 internal fun JsonElement?.stringOrEmpty() = (this as? JsonPrimitive)?.contentOrNull.orEmpty()
@@ -142,12 +143,17 @@ internal fun ClassRecordSchemaForm(
     onChange: (JsonObject) -> Unit,
     modifier: Modifier = Modifier,
     validationState: ClassRecordFormValidationState? = null,
+    showTechnicalDetails: Boolean = false,
 ) {
     val inheritedValidation = LocalClassRecordFormValidation.current
+    val technicalDetails = LocalClassRecordTechnicalDetails.current || showTechnicalDetails
     val ownValidation = remember(schema) { ClassRecordFormValidationState() }
     val validation = validationState ?: inheritedValidation ?: ownValidation
     val required = schema["required"].arrayOrEmpty().map { it.stringOrEmpty() }.toSet()
-    CompositionLocalProvider(LocalClassRecordFormValidation provides validation) {
+    CompositionLocalProvider(
+        LocalClassRecordFormValidation provides validation,
+        LocalClassRecordTechnicalDetails provides technicalDetails,
+    ) {
         Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             schema["properties"].objectOrEmpty().entries.forEachIndexed { index, (name, raw) ->
                 val field = raw.objectOrEmpty()
@@ -187,7 +193,7 @@ private fun SchemaField(
     val choices = effective["enum"].arrayOrEmpty()
     var showJson by remember(schema, validation) { mutableStateOf(false) }
     var jsonDraft by remember(schema, validation) { mutableStateOf(ClassRecordJsonDraft.fromForm(value)) }
-    var showDetails by remember(schema, validation) { mutableStateOf(false) }
+    val showTechnicalDetails = LocalClassRecordTechnicalDetails.current
     val validationOwner = remember(validation) { Any() }
     fun reportDraftError(error: String?) = validation?.update(validationOwner, error?.let { "$label：$it" })
     DisposableEffect(validation) {
@@ -333,12 +339,9 @@ private fun SchemaField(
             if (choices.isNotEmpty()) add("选项对应值：" + choices.mapIndexed { index, choice -> "${schemaChoiceLabel(choice, index)} = $choice" }.joinToString("；"))
             if (showJson) jsonDraft.technicalError?.let { add("格式检查详情：$it") }
         }
-        if (details.isNotEmpty()) {
-            TextButton(onClick = { showDetails = !showDetails }) { Text(if (showDetails) "收起参数详情" else "参数详情") }
-            if (showDetails) {
-                androidx.compose.foundation.text.selection.SelectionContainer {
-                    Text(details.joinToString("\n\n"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+        if (showTechnicalDetails && details.isNotEmpty()) {
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                Text(details.joinToString("\n\n"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

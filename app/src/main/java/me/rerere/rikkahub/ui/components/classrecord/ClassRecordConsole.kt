@@ -285,7 +285,7 @@ internal fun ClassRecordConsole(
                     }
                     if (parameterSchema["properties"].objectOrEmpty().isNotEmpty()) {
                         CardGroup(title = { Text("选择操作范围") }) {
-                            formItem { ClassRecordSchemaForm(parameterSchema, parameterValues, { invalidateRequest(); parameterValues = it }, validationState = parameterValidation) }
+                            formItem { ClassRecordSchemaForm(parameterSchema, parameterValues, { invalidateRequest(); parameterValues = it }, validationState = parameterValidation, showTechnicalDetails = advancedExpanded) }
                         }
                     }
                     val writesData = selected.string("method") !in listOf("GET", "HEAD")
@@ -298,7 +298,7 @@ internal fun ClassRecordConsole(
                                     invalidateRequest()
                                     body = it
                                     bodyDraft = ClassRecordJsonDraft.fromForm(it)
-                                }, validationState = bodyValidation)
+                                }, validationState = bodyValidation, showTechnicalDetails = advancedExpanded)
                             }
                         }
                     }
