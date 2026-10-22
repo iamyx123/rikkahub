@@ -1178,28 +1178,31 @@ private fun TopBar(
             }
         },
         actions = {
-            ReadingPowerButton(
-                enabled = settings.readingPowerEnabled,
-                noticeAcknowledged = settings.readingPowerNoticeAcknowledged,
-                delaySeconds = settings.readingPowerDelaySeconds,
-                state = readingState,
-                onNoticeAcknowledged = {
-                    settingsStore.update { it.copy(readingPowerNoticeAcknowledged = true) }
-                },
-                onEnabledChange = { enabled ->
-                    if (enabled) readingPower.requireAccess()
-                    settingsStore.update { it.copy(
-                        readingPowerEnabled = enabled,
-                        readingPowerNoticeAcknowledged = it.readingPowerNoticeAcknowledged || enabled || it.readingPowerEnabled,
-                    ) }
-                    readingPower.configure(enabled, settingsStore.settingsFlow.value.readingPowerDelaySeconds)
-                    if (!enabled) readingPower.beforeNetwork()
-                },
-                onDelaySecondsChange = { seconds ->
-                    settingsStore.update { it.copy(readingPowerDelaySeconds = seconds) }
-                    readingPower.configure(settingsStore.settingsFlow.value.readingPowerEnabled, seconds)
-                },
-            )
+            // Wait for the persisted confirmation before restoring any app-owned permission UI.
+            if (!settings.init) {
+                ReadingPowerButton(
+                    enabled = settings.readingPowerEnabled,
+                    noticeAcknowledged = settings.readingPowerNoticeAcknowledged,
+                    delaySeconds = settings.readingPowerDelaySeconds,
+                    state = readingState,
+                    onNoticeAcknowledged = {
+                        settingsStore.update { it.copy(readingPowerNoticeAcknowledged = true) }
+                    },
+                    onEnabledChange = { enabled ->
+                        if (enabled) readingPower.requireAccess()
+                        settingsStore.update { it.copy(
+                            readingPowerEnabled = enabled,
+                            readingPowerNoticeAcknowledged = it.readingPowerNoticeAcknowledged || enabled || it.readingPowerEnabled,
+                        ) }
+                        readingPower.configure(enabled, settingsStore.settingsFlow.value.readingPowerDelaySeconds)
+                        if (!enabled) readingPower.beforeNetwork()
+                    },
+                    onDelaySecondsChange = { seconds ->
+                        settingsStore.update { it.copy(readingPowerDelaySeconds = seconds) }
+                        readingPower.configure(settingsStore.settingsFlow.value.readingPowerEnabled, seconds)
+                    },
+                )
+            }
             // 新建对话旁的按钮：单击切换预览，长按通过 Root 静默开启学习桌面
             Box(
                 modifier = Modifier
