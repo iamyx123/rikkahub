@@ -60,6 +60,7 @@ fun ReadingPowerButton(
     delaySeconds: Int,
     state: ReadingPowerState,
     onEnabledChange: suspend (Boolean) -> Unit,
+    onNoticeAcknowledged: suspend () -> Unit,
     onDelaySecondsChange: suspend (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -72,12 +73,18 @@ fun ReadingPowerButton(
     val error = actionError ?: state.error
     val visual = readingPowerButtonVisual(enabled, state.flightModeEnabled, state.phase, error != null)
 
-    fun changeEnabled(value: Boolean) {
+    fun changeEnabled(value: Boolean, acknowledgeNotice: Boolean = false) {
         if (busy) return
         busy = true
         scope.launch {
             actionError = null
             try {
+                if (acknowledgeNotice) {
+                    // Remember the app explanation independently of whether the subsequent
+                    // real Root check succeeds, is denied, or is cancelled by the manager.
+                    onNoticeAcknowledged()
+                    showRootNotice = false
+                }
                 onEnabledChange(value)
                 showRootNotice = false
             } catch (failure: Exception) {
@@ -139,7 +146,7 @@ fun ReadingPowerButton(
         }
     }
 
-    if (showRootNotice) {
+    if (showRootNotice && !noticeAcknowledged && !enabled) {
         AlertDialog(
             onDismissRequest = { if (!busy) showRootNotice = false },
             title = { Text("阅读省电需要 root") },
@@ -151,7 +158,7 @@ fun ReadingPowerButton(
                 }
             },
             confirmButton = {
-                TextButton(enabled = !busy, onClick = { changeEnabled(true) }) {
+                TextButton(enabled = !busy, onClick = { changeEnabled(true, acknowledgeNotice = true) }) {
                     Text(if (busy) "正在检查…" else "检查权限并启用")
                 }
             },

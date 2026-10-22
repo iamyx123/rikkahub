@@ -1,21 +1,17 @@
 package me.rerere.rikkahub.ui.components.intelligentui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -29,15 +25,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.Settings02
+import me.rerere.hugeicons.stroke.CursorPointer01
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.intelligentui.INTERACTIVE_UI_CUSTOM_PROMPT_LIMIT
 import me.rerere.rikkahub.data.intelligentui.InteractiveUiRuntime
 import me.rerere.rikkahub.ui.context.LocalSettings
+import me.rerere.ui.components.ToggleSurface
 import org.koin.compose.koinInject
 
 @Composable
@@ -47,20 +49,27 @@ fun InteractiveUiButton(enabled: Boolean, loading: Boolean, onEnabledChange: (Bo
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var show by remember { mutableStateOf(false) }
-    val ink = MaterialTheme.colorScheme.onSurface
-    val eink = settings.displaySetting.disableCursorBlink
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        FilterChip(
-            selected = enabled,
-            onClick = { onEnabledChange(!enabled) },
-            enabled = !loading,
-            label = { Text("交互界面 · ${if (enabled) "开" else "关"}${if (loading) "（生成中）" else ""}") },
-            leadingIcon = { Checkbox(checked = enabled, onCheckedChange = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) },
-            border = BorderStroke(if (enabled) 2.dp else 1.dp, MaterialTheme.colorScheme.outline),
-            colors = if (eink) FilterChipDefaults.filterChipColors(labelColor = ink, selectedLabelColor = ink, disabledLabelColor = ink)
-                else FilterChipDefaults.filterChipColors(),
-        )
-        IconButton(onClick = { show = true }) { Icon(HugeIcons.Settings02, contentDescription = "交互界面提示词") }
+    val label = "交互·${if (enabled) "开" else "关"}"
+    ToggleSurface(
+        checked = enabled,
+        enabled = !loading,
+        role = Role.Switch,
+        modifier = Modifier.semantics {
+            stateDescription = "$label，${if (loading) "生成中不可切换，" else ""}长按设置提示词"
+            toggleableState = if (enabled) ToggleableState.On else ToggleableState.Off
+        },
+        onClick = { onEnabledChange(!enabled) },
+        onLongClick = { show = true },
+        onLongClickLabel = "设置交互界面提示词",
+    ) {
+        Row(
+            modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(HugeIcons.CursorPointer01, contentDescription = null, modifier = Modifier.size(24.dp))
+            Text(label)
+        }
     }
     if (show) {
         var custom by remember { mutableStateOf(settings.interactiveUiPrompt.orEmpty()) }

@@ -91,6 +91,23 @@ class SettingsStoreTest {
     }
 
     @Test
+    fun `app explanation confirmation is written before enabling and survives disk reopen and unrelated changes`() = runBlocking {
+        val opened = open()
+        val store = opened.store
+        assertEquals(false, store.awaitLoaded().readingPowerNoticeAcknowledged)
+        // Confirming the app explanation does not claim that Root or the feature is enabled.
+        store.update { it.copy(readingPowerNoticeAcknowledged = true) }
+        assertEquals(true, opened.disk.data.first()[SettingsStore.READING_POWER_NOTICE_ACKNOWLEDGED])
+        assertEquals(false, store.settingsFlow.value.readingPowerEnabled)
+
+        val restarted = open().store
+        assertEquals(true, restarted.awaitLoaded().readingPowerNoticeAcknowledged)
+        assertEquals(false, restarted.settingsFlow.value.readingPowerEnabled)
+        restarted.update { it.copy(readingPowerDelaySeconds = 75, titlePrompt = "unrelated") }
+        assertEquals(true, reopened().readingPowerNoticeAcknowledged)
+    }
+
+    @Test
     fun `interactive UI custom prompt survives disk writes and restart`() = runBlocking {
         val opened = open()
         val store = opened.store

@@ -1183,6 +1183,9 @@ private fun TopBar(
                 noticeAcknowledged = settings.readingPowerNoticeAcknowledged,
                 delaySeconds = settings.readingPowerDelaySeconds,
                 state = readingState,
+                onNoticeAcknowledged = {
+                    settingsStore.update { it.copy(readingPowerNoticeAcknowledged = true) }
+                },
                 onEnabledChange = { enabled ->
                     if (enabled) readingPower.requireAccess()
                     settingsStore.update { it.copy(
