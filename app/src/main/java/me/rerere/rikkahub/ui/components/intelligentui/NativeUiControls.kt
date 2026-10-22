@@ -49,6 +49,7 @@ internal fun NativeUiSlider(id: String, p: JsonObject, enabled: Boolean, dispatc
     val active = enabled && target.isNotBlank()
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("${p.text("label")}  ${"%.2f".format(value)} ${p.text("unit")}", style = MaterialTheme.typography.labelLarge)
+        if (!active) Text("只读参数", style = MaterialTheme.typography.bodySmall)
         Slider(
             value = value,
             onValueChange = {
@@ -77,9 +78,12 @@ internal fun NativeUiChoice(type: String, p: JsonObject, enabled: Boolean, dispa
     val target = p.text("valueBinding")
     val active = enabled && target.isNotBlank()
     val selected = p.text("value")
-    fun select(value: String) = dispatch(interactiveUiChange(target, JsonPrimitive(value), commit = true))
+    fun select(value: String) {
+        if (active) dispatch(interactiveUiChange(target, JsonPrimitive(value), commit = true))
+    }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (p.text("label").isNotBlank()) Text(p.text("label"), style = MaterialTheme.typography.labelLarge)
+        if (!active) Text("只读：${options.firstOrNull { it.first == selected }?.second ?: selected.ifBlank { "未选择" }}", style = MaterialTheme.typography.bodySmall)
         when {
             type == "Select" -> {
                 var expanded by remember { mutableStateOf(false) }
@@ -92,7 +96,12 @@ internal fun NativeUiChoice(type: String, p: JsonObject, enabled: Boolean, dispa
                         modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = active),
                     )
                     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                        options.forEach { (value, label, _) -> DropdownMenuItem(text = { Text(label) }, onClick = { expanded = false; select(value) }) }
+                        options.forEach { (value, label, _) -> DropdownMenuItem(
+                            text = { Text(label) },
+                            leadingIcon = { RadioButton(selected = selected == value, onClick = null) },
+                            enabled = active,
+                            onClick = { expanded = false; select(value) },
+                        ) }
                     }
                 }
             }
@@ -103,6 +112,7 @@ internal fun NativeUiChoice(type: String, p: JsonObject, enabled: Boolean, dispa
                         onClick = { select(value) },
                         shape = SegmentedButtonDefaults.itemShape(index, options.size),
                         enabled = active,
+                        icon = { SegmentedButtonDefaults.Icon(active = selected == value) },
                     ) { Text(label) }
                 }
             }
@@ -127,6 +137,12 @@ internal fun NativeUiBoolean(type: String, p: JsonObject, enabled: Boolean, disp
     val update: (Boolean) -> Unit = { dispatch(interactiveUiChange(target, JsonPrimitive(it), commit = true)) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         if (type == "Checkbox") Checkbox(checked, update, enabled = active) else Switch(checked, update, enabled = active)
-        Text(p.text("label"), modifier = Modifier.weight(1f))
+        Column(Modifier.weight(1f)) {
+            Text(p.text("label"))
+            val status = if (type == "Checkbox") {
+                if (checked) "已选中" else "未选中"
+            } else if (checked) "已开启" else "已关闭"
+            Text(status + if (active) "" else " · 只读", style = MaterialTheme.typography.bodySmall)
+        }
     }
 }

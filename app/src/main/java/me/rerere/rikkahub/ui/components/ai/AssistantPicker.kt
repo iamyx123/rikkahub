@@ -43,6 +43,7 @@ import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Edit03
 import me.rerere.hugeicons.stroke.LookTop
+import me.rerere.hugeicons.stroke.Tick02
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.datastore.Settings
@@ -168,6 +169,7 @@ private fun AssistantPickerSheet(
                             },
                             label = { Text(tag.name) },
                             selected = tag.id in selectedTagIds,
+                            leadingIcon = if (tag.id in selectedTagIds) ({ Icon(HugeIcons.Tick02, contentDescription = "已选择") }) else null,
                             shape = RoundedCornerShape(50),
                         )
                     }

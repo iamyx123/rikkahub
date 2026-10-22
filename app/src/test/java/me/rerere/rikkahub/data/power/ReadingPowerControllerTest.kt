@@ -31,6 +31,7 @@ class ReadingPowerControllerTest {
     private class Access : FlightModeAccess {
         var root = true
         var flight = false
+        var failRead = false
         var ready = true
         var applyEnable = true
         var applyDisable = true
@@ -47,6 +48,7 @@ class ReadingPowerControllerTest {
 
         override suspend fun isFlightModeEnabled(): Boolean {
             flightReads++
+            if (failRead) throw IOException("system setting unavailable")
             return flight
         }
 
@@ -86,6 +88,81 @@ class ReadingPowerControllerTest {
         assertEquals(0, access.flightReads)
         assertEquals(0, access.networkReads)
         assertEquals(ReadingPowerPhase.DISABLED, controller.state.value.phase)
+    }
+
+    @Test
+    fun `the visible system flight indicator works with automatic power disabled and without root`() = runTest {
+        val access = Access().apply { root = false; flight = true }
+        val controller = controller(access)
+        runCurrent()
+        controller.refreshSystemFlightMode()
+        runCurrent()
+        assertEquals(true, controller.state.value.flightModeEnabled)
+        assertEquals(ReadingPowerPhase.DISABLED, controller.state.value.phase)
+        assertFalse(controller.state.value.ownsFlightMode)
+        assertEquals(0, access.rootChecks)
+        assertTrue(access.writes.isEmpty())
+        controller.configure(false, 30)
+        runCurrent()
+        assertEquals(true, controller.state.value.flightModeEnabled)
+    }
+
+    @Test
+    fun `system observer notifications update manual flight changes without mutating the user setting`() = runTest {
+        val access = Access().apply { root = false }
+        val controller = controller(access)
+        controller.refreshSystemFlightMode()
+        runCurrent()
+        assertEquals(false, controller.state.value.flightModeEnabled)
+        access.flight = true
+        controller.refreshSystemFlightMode()
+        runCurrent()
+        assertEquals(true, controller.state.value.flightModeEnabled)
+        access.flight = false
+        controller.refreshSystemFlightMode()
+        runCurrent()
+        assertEquals(false, controller.state.value.flightModeEnabled)
+        assertEquals(0, access.rootChecks)
+        assertTrue(access.writes.isEmpty())
+    }
+
+    @Test
+    fun `a failed system read becomes unknown instead of displaying a stale flight value`() = runTest {
+        val access = Access().apply { flight = true }
+        val controller = controller(access)
+        controller.refreshSystemFlightMode()
+        runCurrent()
+        assertEquals(true, controller.state.value.flightModeEnabled)
+        access.failRead = true
+        controller.refreshSystemFlightMode()
+        runCurrent()
+        assertEquals(null, controller.state.value.flightModeEnabled)
+        access.failRead = false
+        access.flight = false
+        controller.refreshSystemFlightMode()
+        runCurrent()
+        assertEquals(false, controller.state.value.flightModeEnabled)
+        assertTrue(access.writes.isEmpty())
+    }
+
+    @Test
+    fun `system status refresh preserves the reply countdown and verified transitions update the indicator`() = runTest {
+        val access = Access()
+        val controller = controller(access)
+        controller.read(30)
+        runCurrent()
+        advanceTimeBy(1_000)
+        controller.refreshSystemFlightMode()
+        runCurrent()
+        assertEquals(false, controller.state.value.flightModeEnabled)
+        assertEquals(30_000L, controller.state.value.deadlineElapsedMs)
+        advanceTimeBy(29_000)
+        runCurrent()
+        assertEquals(true, controller.state.value.flightModeEnabled)
+        controller.setAppForeground(false)
+        runCurrent()
+        assertEquals(false, controller.state.value.flightModeEnabled)
+        assertEquals(listOf(true, false), access.writes)
     }
 
     @Test

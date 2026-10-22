@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -196,7 +195,7 @@ private fun SchemaField(
         if (variants.isNotEmpty()) {
             Text(label, style = MaterialTheme.typography.labelLarge)
             variants.forEachIndexed { index, variant ->
-                FilterChip(
+                ClassRecordChoiceChip(
                     selected = variantIndex == index,
                     onClick = { variantIndex = index; onChange(if (variant.objectOrEmpty().string("type") == "null") JsonNull else null) },
                     label = { Text(variant.objectOrEmpty().string("title").ifBlank { "格式 ${index + 1}" }) },
@@ -224,7 +223,7 @@ private fun SchemaField(
             choices.isNotEmpty() -> {
                 Text(label, style = MaterialTheme.typography.labelLarge)
                 choices.forEach { choice ->
-                    FilterChip(
+                    ClassRecordChoiceChip(
                         selected = value == choice,
                         onClick = { onChange(if (value == choice && !required) null else choice) },
                         label = { Text(choice.stringOrEmpty().ifBlank { choice.toString() }) },

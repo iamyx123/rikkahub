@@ -1,15 +1,19 @@
 package me.rerere.rikkahub.ui.components.intelligentui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,8 +47,19 @@ fun InteractiveUiButton(enabled: Boolean, loading: Boolean, onEnabledChange: (Bo
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var show by remember { mutableStateOf(false) }
+    val ink = MaterialTheme.colorScheme.onSurface
+    val eink = settings.displaySetting.disableCursorBlink
     Row(verticalAlignment = Alignment.CenterVertically) {
-        FilterChip(selected = enabled, onClick = { onEnabledChange(!enabled) }, enabled = !loading, label = { Text(if (enabled) "交互界面 · 开" else "交互界面") })
+        FilterChip(
+            selected = enabled,
+            onClick = { onEnabledChange(!enabled) },
+            enabled = !loading,
+            label = { Text("交互界面 · ${if (enabled) "开" else "关"}${if (loading) "（生成中）" else ""}") },
+            leadingIcon = { Checkbox(checked = enabled, onCheckedChange = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) },
+            border = BorderStroke(if (enabled) 2.dp else 1.dp, MaterialTheme.colorScheme.outline),
+            colors = if (eink) FilterChipDefaults.filterChipColors(labelColor = ink, selectedLabelColor = ink, disabledLabelColor = ink)
+                else FilterChipDefaults.filterChipColors(),
+        )
         IconButton(onClick = { show = true }) { Icon(HugeIcons.Settings02, contentDescription = "交互界面提示词") }
     }
     if (show) {

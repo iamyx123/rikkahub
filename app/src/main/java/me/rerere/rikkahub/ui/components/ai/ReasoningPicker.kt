@@ -32,6 +32,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -41,6 +43,7 @@ import me.rerere.ai.core.ReasoningLevel
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Idea
 import me.rerere.hugeicons.stroke.Idea01
+import me.rerere.hugeicons.stroke.Tick02
 import me.rerere.rikkahub.R
 import me.rerere.ui.components.ToggleSurface
 import me.rerere.ui.icons.ReasoningHigh
@@ -60,6 +63,8 @@ fun ReasoningButton(
     onUpdateReasoningLevel: (ReasoningLevel) -> Unit,
 ) {
     var showPicker by remember { mutableStateOf(false) }
+    val currentLevel = reasoningLevel.label()
+    val reasoningTitle = stringResource(R.string.setting_provider_page_reasoning)
 
     if (showPicker) {
         ReasoningPicker(
@@ -72,7 +77,7 @@ fun ReasoningButton(
     ToggleSurface(
         checked = reasoningLevel.isEnabled,
         onClick = { showPicker = true },
-        modifier = modifier,
+        modifier = modifier.semantics { stateDescription = "$reasoningTitle · $currentLevel" },
     ) {
         Row(
             modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
@@ -85,7 +90,8 @@ fun ReasoningButton(
             ) {
                 Icon(reasoningLevel.icon(), null)
             }
-            if (!onlyIcon) Text(stringResource(R.string.setting_provider_page_reasoning))
+            if (reasoningLevel.isEnabled) Icon(HugeIcons.Tick02, contentDescription = "已开启", modifier = Modifier.size(16.dp))
+            if (!onlyIcon) Text("$reasoningTitle · $currentLevel")
         }
     }
 }

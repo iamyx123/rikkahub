@@ -1,13 +1,17 @@
 package me.rerere.rikkahub.ui.components
 
 import android.os.SystemClock
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -27,7 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -35,12 +39,16 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.Moon02
+import me.rerere.hugeicons.stroke.AirplaneMode
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.power.ReadingPowerPhase
 import me.rerere.rikkahub.data.power.ReadingPowerState
 
@@ -60,9 +68,9 @@ fun ReadingPowerButton(
     var rootNoticeAccepted by rememberSaveable { mutableStateOf(enabled) }
     var busy by remember { mutableStateOf(false) }
     var actionError by remember { mutableStateOf<String?>(null) }
-    val status = readingPowerStatus(state.phase, state.ownsFlightMode)
+    val status = readingPowerStatus(state.phase, state.ownsFlightMode, state.flightModeEnabled)
     val error = actionError ?: state.error
-    val changing = busy || state.phase == ReadingPowerPhase.ENABLING || state.phase == ReadingPowerPhase.RESTORING
+    val visual = readingPowerButtonVisual(enabled, state.flightModeEnabled, state.phase, error != null)
 
     fun changeEnabled(value: Boolean) {
         scope.launch {
@@ -83,35 +91,51 @@ fun ReadingPowerButton(
     }
 
     Surface(
-        shape = CircleShape,
-        color = if (enabled) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-        contentColor = when {
-            error != null || state.phase == ReadingPowerPhase.ERROR -> MaterialTheme.colorScheme.error
-            enabled -> MaterialTheme.colorScheme.onSecondaryContainer
-            else -> MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        modifier = modifier.size(48.dp).clip(CircleShape)
-            .semantics {
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface),
+        modifier = modifier.heightIn(min = 48.dp).widthIn(min = 88.dp, max = 96.dp).clip(MaterialTheme.shapes.small)
+            .semantics(mergeDescendants = true) {
                 contentDescription = "阅读省电，长按设置"
                 toggleableState = if (enabled) ToggleableState.On else ToggleableState.Off
-                stateDescription = if (error != null) "$status：$error" else status
+                stateDescription = "${visual.automaticLabel}，${visual.flightLabel}，$status" + (error?.let { "：$it" } ?: "")
             }
             .combinedClickable(
-                enabled = !changing,
                 role = Role.Switch,
                 onClickLabel = if (enabled) "关闭阅读省电" else "开启阅读省电",
                 onLongClickLabel = "设置阅读省电等待秒数",
-                onLongClick = { actionError = null; showSettings = true },
+                onLongClick = { showSettings = true },
                 onClick = {
-                    if (!enabled && !rootNoticeAccepted) {
+                    if (busy) showSettings = true
+                    else if (!enabled && !rootNoticeAccepted) {
                         actionError = null
                         showRootNotice = true
                     } else changeEnabled(!enabled)
                 },
             ),
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(HugeIcons.Moon02, contentDescription = null, modifier = Modifier.size(24.dp))
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                when (visual.flightIcon) {
+                    ReadingPowerFlightIcon.FILLED -> Icon(painterResource(R.drawable.ic_reading_flight_filled), contentDescription = null, modifier = Modifier.size(24.dp))
+                    ReadingPowerFlightIcon.OUTLINE -> Icon(HugeIcons.AirplaneMode, contentDescription = null, modifier = Modifier.size(24.dp))
+                    ReadingPowerFlightIcon.UNKNOWN -> Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                        Text("?", fontSize = 24.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                visual.phaseLabel?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Column {
+                Text(visual.automaticLabel, style = MaterialTheme.typography.labelSmall, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(visual.flightLabel, style = MaterialTheme.typography.labelSmall, fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 
@@ -144,6 +168,7 @@ fun ReadingPowerButton(
             title = { Text("阅读省电") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("${visual.automaticLabel} · ${visual.flightLabel}", style = MaterialTheme.typography.titleSmall)
                     Text(status, style = MaterialTheme.typography.bodyMedium)
                     if (state.phase == ReadingPowerPhase.COUNTDOWN && state.deadlineElapsedMs != null) {
                         ReadingPowerCountdown(state.deadlineElapsedMs)
@@ -209,12 +234,44 @@ internal fun parseReadingPowerDelaySeconds(value: String): Int? {
 internal fun readingPowerRemainingSeconds(deadlineElapsedMs: Long, nowElapsedMs: Long): Long =
     ((deadlineElapsedMs - nowElapsedMs).coerceAtLeast(0) + 999) / 1000
 
-internal fun readingPowerStatus(phase: ReadingPowerPhase, ownsFlightMode: Boolean): String = when (phase) {
+internal enum class ReadingPowerFlightIcon { OUTLINE, FILLED, UNKNOWN }
+
+internal data class ReadingPowerButtonVisual(
+    val automaticLabel: String,
+    val flightLabel: String,
+    val flightIcon: ReadingPowerFlightIcon,
+    val phaseLabel: String?,
+)
+
+/** Actual system read-back alone determines the airplane silhouette, independently of app intent. */
+internal fun readingPowerButtonVisual(
+    enabled: Boolean,
+    flightModeEnabled: Boolean?,
+    phase: ReadingPowerPhase,
+    hasError: Boolean = false,
+): ReadingPowerButtonVisual = ReadingPowerButtonVisual(
+    automaticLabel = if (enabled) "自动开" else "自动关",
+    flightLabel = when (flightModeEnabled) { true -> "飞行已开"; false -> "飞行未开"; null -> "飞行未知" },
+    flightIcon = when (flightModeEnabled) { true -> ReadingPowerFlightIcon.FILLED; false -> ReadingPowerFlightIcon.OUTLINE; null -> ReadingPowerFlightIcon.UNKNOWN },
+    phaseLabel = when {
+        hasError || phase == ReadingPowerPhase.ERROR -> "错误"
+        phase == ReadingPowerPhase.COUNTDOWN -> "等待"
+        phase == ReadingPowerPhase.ENABLING -> "切换"
+        phase == ReadingPowerPhase.RESTORING -> "恢复"
+        else -> null
+    },
+)
+
+internal fun readingPowerStatus(phase: ReadingPowerPhase, ownsFlightMode: Boolean, flightModeEnabled: Boolean? = null): String = when (phase) {
     ReadingPowerPhase.DISABLED -> "阅读省电已关闭"
     ReadingPowerPhase.INACTIVE -> "等待阅读已完成的回答"
     ReadingPowerPhase.COUNTDOWN -> "回答已完成，等待切换飞行模式"
     ReadingPowerPhase.ENABLING -> "正在确认飞行模式"
-    ReadingPowerPhase.AIRPLANE -> if (ownsFlightMode) "阅读中，飞行模式已开启" else "当前已处于飞行模式"
+    ReadingPowerPhase.AIRPLANE -> when (flightModeEnabled) {
+        true -> if (ownsFlightMode) "阅读中，飞行模式已开启" else "当前已处于飞行模式"
+        false -> "系统飞行模式未开启"
+        null -> "尚未读到系统飞行模式状态"
+    }
     ReadingPowerPhase.RESTORING -> "正在恢复此前的飞行模式状态"
     ReadingPowerPhase.ERROR -> "飞行模式控制失败"
 }

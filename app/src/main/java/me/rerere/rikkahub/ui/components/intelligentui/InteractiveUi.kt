@@ -215,7 +215,7 @@ internal fun NativeUiNode(node: JsonElement?, enabled: Boolean, dispatch: (JsonO
                 }
             }
         }
-        "Card" -> Surface(shape=MaterialTheme.shapes.large,color=MaterialTheme.colorScheme.surfaceContainerHigh){Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){if(p.text("title").isNotBlank())Text(p.text("title"),style=MaterialTheme.typography.titleSmallEmphasized);renderChildren()}}
+        "Card" -> Surface(shape=MaterialTheme.shapes.large,color=MaterialTheme.colorScheme.surfaceContainerHigh,border=if(eink)BorderStroke(1.dp,MaterialTheme.colorScheme.outline)else null){Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){if(p.text("title").isNotBlank())Text(p.text("title"),style=MaterialTheme.typography.titleSmallEmphasized);renderChildren()}}
         "Carousel" -> NativeUiCarousel(obj.text("id"), p, enabled, dispatch)
         "Popover" -> NativeUiPopover(obj.text("id"), p, enabled, dispatch)
         "Link" -> NativeUiLink(p)
@@ -223,7 +223,7 @@ internal fun NativeUiNode(node: JsonElement?, enabled: Boolean, dispatch: (JsonO
         "ListItem" -> Column { if(p.text("label").isNotBlank()) Text(p.text("label"),style=MaterialTheme.typography.labelSmall); NativeUiSlot(p["content"], enabled, dispatch) }
         "Title" -> Text(p.text("text"),style=MaterialTheme.typography.titleMedium)
         "Caption","Label" -> Text(p.text("text"),style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        "Badge" -> Surface(shape=MaterialTheme.shapes.small,color=MaterialTheme.colorScheme.secondaryContainer){Text(p.text("text"),Modifier.padding(horizontal=10.dp,vertical=5.dp),style=MaterialTheme.typography.labelMedium)}
+        "Badge" -> Surface(shape=MaterialTheme.shapes.small,color=MaterialTheme.colorScheme.secondaryContainer,border=if(eink)BorderStroke(1.dp,MaterialTheme.colorScheme.outline)else null){Text(p.text("text"),Modifier.padding(horizontal=10.dp,vertical=5.dp),style=MaterialTheme.typography.labelMedium)}
         "Text" -> if(p["text"] is JsonArray) FlowRow(horizontalArrangement=Arrangement.spacedBy(4.dp)) { NativeUiSlot(p["text"],enabled,dispatch) } else CompositionLocalProvider(LocalInteractiveMessage provides null) { MarkdownBlock(p.text("text")) }
         "Quote" -> Text(p.text("text"),style=MaterialTheme.typography.bodyMedium)
         "Markdown" -> CompositionLocalProvider(LocalInteractiveMessage provides null){MarkdownBlock(p.text("text"))}
@@ -232,12 +232,48 @@ internal fun NativeUiNode(node: JsonElement?, enabled: Boolean, dispatch: (JsonO
         "Divider" -> HorizontalDivider()
         "Spacer" -> Spacer(Modifier.height(p.number("size",8.0).coerceIn(0.0,48.0).dp))
         "List" -> Column(verticalArrangement=Arrangement.spacedBy(6.dp)){p.list("items").forEachIndexed{index,item->Row{Text(if(p.text("variant")=="numbers") "${index+1}.  " else if(p.text("variant")=="timeline") "│  " else "•  ");NativeUiNode(item,enabled,dispatch)}}}
-        "IconButton" -> FilledTonalIconButton(enabled=enabled,onClick={dispatch(buildJsonObject{put("type","action");put("target",p.text("action"))})}) { NativeUiIcon(buildJsonObject{put("name",p.text("icon"));put("label",p.text("label"))}) }
-        "Pressable" -> OutlinedCard(enabled=enabled,onClick={dispatch(buildJsonObject{put("type","action");put("target",p.text("action"))})},modifier=Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) { children.forEach{NativeUiNode(it,false,{})} } }
+        "IconButton" -> {
+            val active = enabled && p.text("action").isNotBlank()
+            val click = { dispatch(buildJsonObject { put("type", "action"); put("target", p.text("action")) }) }
+            val icon: @Composable () -> Unit = { NativeUiIcon(buildJsonObject { put("name", p.text("icon")); put("label", p.text("label")) }) }
+            if (eink) OutlinedButton(
+                enabled = active, onClick = click,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface, disabledContentColor = MaterialTheme.colorScheme.onSurface),
+            ) {
+                icon()
+                Spacer(Modifier.width(6.dp))
+                Text(p.text("label").ifBlank { "操作" } + if (active) "" else "（不可用）")
+            } else FilledTonalIconButton(enabled = active, onClick = click) { icon() }
+        }
+        "Pressable" -> {
+            val active = enabled && p.text("action").isNotBlank()
+            val selected = (p["selected"] as? JsonPrimitive)?.booleanOrNull
+            OutlinedCard(
+                enabled = active,
+                onClick = { dispatch(buildJsonObject { put("type", "action"); put("target", p.text("action")) }) },
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(if (selected == true) 2.dp else 1.dp, MaterialTheme.colorScheme.outline),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    if (selected != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = selected, onCheckedChange = null)
+                        Text(if (selected) "已选择" else "未选择", style = MaterialTheme.typography.labelMedium)
+                    }
+                    if (p.text("label").isNotBlank()) Text(p.text("label"), style = MaterialTheme.typography.labelLarge)
+                    if (!active) Text("只读", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                    children.forEach { NativeUiNode(it, false, {}) }
+                }
+            }
+        }
         "Button" -> {
             val click={dispatch(buildJsonObject{put("type","action");put("target",p.text("action"))})}
             val active=enabled && p.text("action").isNotBlank() && (p["disabled"] as? JsonPrimitive)?.booleanOrNull!=true
-            when(p.text("variant")){"text","ghost"->TextButton(onClick=click,enabled=active){Text(p.text("label"))};"tonal","soft"->FilledTonalButton(onClick=click,enabled=active){Text(p.text("label"))};"outline"->OutlinedButton(onClick=click,enabled=active){Text(p.text("label"))};else->Button(onClick=click,enabled=active){Text(p.text("label"))}}
+            val label = p.text("label") + if (active) "" else "（不可用）"
+            if (eink) OutlinedButton(
+                onClick = click, enabled = active,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface, disabledContentColor = MaterialTheme.colorScheme.onSurface),
+            ) { Text(label) }
+            else when(p.text("variant")){"text","ghost"->TextButton(onClick=click,enabled=active){Text(label)};"tonal","soft"->FilledTonalButton(onClick=click,enabled=active){Text(label)};"outline"->OutlinedButton(onClick=click,enabled=active){Text(label)};else->Button(onClick=click,enabled=active){Text(label)}}
         }
         "Input","TextArea","NumberInput" -> NativeInput(obj.text("id"),p,type,enabled,dispatch)
         "Slider" -> NativeUiSlider(obj.text("id"), p, enabled, dispatch)

@@ -16,7 +16,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -184,8 +183,8 @@ internal fun ClassRecordConsole(
                 Text("学校空间控制面板", style = MaterialTheme.typography.titleLarge)
                 Text("功能目录来自当前服务器，按登录角色和权限显示。", style = MaterialTheme.typography.bodySmall)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(group == null, { if (!busy) group = null }, label = { Text("全部") })
-                    groups.forEach { name -> FilterChip(group == name, { if (!busy) group = name }, label = { Text(name) }) }
+                    ClassRecordChoiceChip(group == null, { group = null }, label = { Text("全部") }, enabled = !busy)
+                    groups.forEach { name -> ClassRecordChoiceChip(group == name, { group = name }, label = { Text(name) }, enabled = !busy) }
                 }
                 OutlinedTextField(filter, { filter = it }, label = { Text("搜索面板、操作或接口") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (state.operations.isEmpty()) Text("当前账号没有控制面板操作，或功能目录尚未加载。可在账号页刷新。")

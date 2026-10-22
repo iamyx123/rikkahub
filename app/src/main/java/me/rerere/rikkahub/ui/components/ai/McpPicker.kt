@@ -37,6 +37,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -71,9 +73,10 @@ fun McpPickerButton(
     val enabledServers = servers.fastFilter {
         it.commonOptions.enable && assistant.mcpServers.contains(it.id)
     }
+    val enabledState = if (enabledServers.isEmpty()) "MCP · 关" else "MCP · ${enabledServers.size} 个"
     ToggleSurface(
-        modifier = modifier,
-        checked = assistant.mcpServers.isNotEmpty(),
+        modifier = modifier.semantics { stateDescription = enabledState },
+        checked = enabledServers.isNotEmpty(),
         onClick = {
             showMcpPicker = true
         }
@@ -112,6 +115,7 @@ fun McpPickerButton(
 
                 }
             }
+            Text(enabledState)
         }
     }
     if (showMcpPicker) {
@@ -194,7 +198,7 @@ fun McpPickerListItem(
         trailingContent = {
             if (enabledServers.isNotEmpty()) {
                 CountBadge(count = enabledServers.size)
-            }
+            } else Text("未启用", style = MaterialTheme.typography.labelMedium)
         },
     ) {
         Text(stringResource(R.string.mcp_picker_title))

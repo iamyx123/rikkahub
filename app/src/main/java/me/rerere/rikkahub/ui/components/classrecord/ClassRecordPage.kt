@@ -17,7 +17,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -137,7 +136,7 @@ private fun ClassRecordAccount(
                 checked = assistant.enableClassRecord,
                 onCheckedChange = { onUpdateAssistant(assistant.copy(enableClassRecord = it)) },
                 headlineContent = { Text("允许 AI 调用 Class Record") },
-                supportingContent = { Text("登录后，AI 可在当前账号权限内检索课程、读取完整转写和下载原件。") },
+                supportingContent = { Text("${if (assistant.enableClassRecord) "已开启" else "已关闭"}。登录后，AI 可在当前账号权限内检索课程、读取完整转写和下载原件。") },
             )
         }
         val user = state.user
@@ -364,7 +363,7 @@ private fun ClassRecordLibrary(
                 }
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     state.tools.forEach { tool ->
-                        FilterChip(
+                        ClassRecordChoiceChip(
                             selected = selected?.string("name") == tool.string("name"),
                             onClick = { if (!busy) { selectedName = tool.string("name"); pages = emptyList(); next = null } },
                             label = { Text(toolTitle(tool)) },

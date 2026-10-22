@@ -153,11 +153,15 @@ class RikkaHubApp : Application() {
 
     private fun initializeReadingPower() {
         val controller = get<me.rerere.rikkahub.data.power.ReadingPowerController>()
+        me.rerere.rikkahub.data.power.AndroidFlightModeMonitor(this, controller).start()
         val lifecycle = ProcessLifecycleOwner.get().lifecycle
         controller.setAppForeground(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
         lifecycle.addObserver(LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> controller.setAppForeground(true)
+                Lifecycle.Event.ON_START -> {
+                    controller.refreshSystemFlightMode()
+                    controller.setAppForeground(true)
+                }
                 Lifecycle.Event.ON_STOP -> controller.setAppForeground(false)
                 else -> Unit
             }

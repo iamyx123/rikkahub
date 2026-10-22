@@ -9,6 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -25,6 +26,8 @@ data class ReadingPowerState(
     val deadlineElapsedMs: Long? = null,
     val ownsFlightMode: Boolean = false,
     val error: String? = null,
+    // System readback; null means unknown. Configuration/ownership never imply radio state.
+    val flightModeEnabled: Boolean? = null,
 )
 
 interface FlightModeAccess {
@@ -123,6 +126,19 @@ class ReadingPowerController(
         if (changed) requestReconcile()
     }
 
+    /** Settings observer and foreground resume refresh the indicator without toggling any radio. */
+    fun refreshSystemFlightMode() {
+        scope.launch {
+            mutex.withLock {
+                try { readFlightMode() }
+                catch (failure: Exception) {
+                    if (failure is CancellationException) throw failure
+                    // The indicator shows unknown; reading a public setting never requests Root.
+                }
+            }
+        }
+    }
+
     suspend fun checkAccess(): Boolean = try {
         requireAccess()
         true
@@ -134,7 +150,7 @@ class ReadingPowerController(
     suspend fun requireAccess() {
         try {
             if (!access.hasRootAccess()) throw IOException("阅读省电需要 Root 权限，请先授权 RikkaHub。")
-            access.isFlightModeEnabled()
+            mutex.withLock { readFlightMode() }
         } catch (error: Exception) {
             if (error is CancellationException) throw error
             val failure = error.asPowerError("无法验证飞行模式权限")
@@ -273,7 +289,7 @@ class ReadingPowerController(
     private suspend fun enableLocked(reading: ReadingKey) = withContext(NonCancellable) {
         try {
             if (readingKey() != reading) return@withContext
-            if (access.isFlightModeEnabled()) {
+            if (readFlightMode()) {
                 // A pre-existing user choice is never owned and is never turned off by this feature.
                 publish(ReadingPowerPhase.AIRPLANE)
                 return@withContext
@@ -302,7 +318,7 @@ class ReadingPowerController(
         if (!ownsFlightMode) return@withContext true
         publish(ReadingPowerPhase.RESTORING)
         try {
-            val wasEnabled = access.isFlightModeEnabled()
+            val wasEnabled = readFlightMode()
             if (wasEnabled) {
                 val commandError = runCatching { access.setFlightModeEnabled(false) }.exceptionOrNull()
                 if (!verifyFlightMode(false)) throw IOException("系统未确认恢复联网，恢复记录已保留。", commandError)
@@ -320,7 +336,7 @@ class ReadingPowerController(
     private suspend fun verifyFlightMode(expected: Boolean): Boolean {
         val deadline = elapsedRealtime() + verifyTimeoutMillis
         while (true) {
-            if (access.isFlightModeEnabled() == expected) return true
+            if (readFlightMode() == expected) return true
             if (elapsedRealtime() >= deadline) return false
             pause(100)
         }
@@ -345,7 +361,15 @@ class ReadingPowerController(
     }
 
     private fun publish(phase: ReadingPowerPhase, deadline: Long? = null, error: String? = null) {
-        _state.value = ReadingPowerState(phase, deadline, ownsFlightMode, error)
+        _state.update { it.copy(phase = phase, deadlineElapsedMs = deadline, ownsFlightMode = ownsFlightMode, error = error) }
+    }
+
+    private suspend fun readFlightMode(): Boolean = try {
+        access.isFlightModeEnabled().also { actual -> _state.update { it.copy(flightModeEnabled = actual) } }
+    } catch (failure: Exception) {
+        if (failure is CancellationException) throw failure
+        _state.update { it.copy(flightModeEnabled = null) }
+        throw failure
     }
 
     private fun Exception.asPowerError(prefix: String): IOException =

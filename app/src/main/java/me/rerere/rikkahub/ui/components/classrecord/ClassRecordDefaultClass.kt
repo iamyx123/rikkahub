@@ -1,7 +1,9 @@
 package me.rerere.rikkahub.ui.components.classrecord
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -10,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -21,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -95,12 +99,18 @@ internal fun ClassRecordDefaultClass(
                         }, key = { it.string("school_id") + "/" + it.string("class_id") }) { record ->
                             Surface(
                                 onClick = { selected = record },
+                                enabled = !loading,
                                 shape = MaterialTheme.shapes.large,
                                 color = if (selected == record) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                                border = BorderStroke(if (selected == record) 2.dp else 1.dp, MaterialTheme.colorScheme.outline),
                             ) {
-                                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(record.string("class_name").ifBlank { record.string("class_id") }, style = MaterialTheme.typography.titleSmall)
-                                    Text("${record.string("school_name").ifBlank { record.string("school_id") }} · ${record.string("class_id")}", style = MaterialTheme.typography.bodySmall)
+                                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = selected == record, onClick = null)
+                                    Column(Modifier.weight(1f).padding(start = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(record.string("class_name").ifBlank { record.string("class_id") }, style = MaterialTheme.typography.titleSmall)
+                                        Text("${record.string("school_name").ifBlank { record.string("school_id") }} · ${record.string("class_id")}", style = MaterialTheme.typography.bodySmall)
+                                        if (selected == record) Text("已选择", style = MaterialTheme.typography.labelSmall)
+                                    }
                                 }
                             }
                         }

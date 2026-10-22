@@ -57,6 +57,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -101,10 +102,12 @@ fun SearchPickerButton(
 ) {
     var showSearchPicker by remember { mutableStateOf(false) }
     val currentService = settings.searchServices.getOrNull(settings.searchServiceSelected)
+    val searchEnabled = enableSearch || model?.tools?.contains(BuiltInTools.Search) == true
+    val searchState = if (searchEnabled) "搜索 · 开" else "搜索 · 关"
 
     ToggleSurface(
-        modifier = modifier,
-        checked = enableSearch || model?.tools?.contains(BuiltInTools.Search) == true,
+        modifier = modifier.semantics { stateDescription = searchState },
+        checked = searchEnabled,
         onClick = {
             showSearchPicker = true
         }
@@ -136,6 +139,7 @@ fun SearchPickerButton(
                     )
                 }
             }
+            Text(searchState)
         }
     }
 
