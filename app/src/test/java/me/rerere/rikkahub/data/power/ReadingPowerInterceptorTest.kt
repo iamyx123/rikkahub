@@ -6,7 +6,14 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import okhttp3.Call
+import okhttp3.Authenticator
+import okhttp3.Cache
+import okhttp3.CertificatePinner
 import okhttp3.Connection
+import okhttp3.ConnectionPool
+import okhttp3.CookieJar
+import okhttp3.Dns
+import okhttp3.EventListener
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Protocol
@@ -25,8 +32,14 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
+import java.net.Proxy
+import java.net.ProxySelector
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
+import javax.net.SocketFactory
+import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.X509TrustManager
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReadingPowerInterceptorTest {
@@ -144,6 +157,39 @@ class ReadingPowerInterceptorTest {
         override fun withReadTimeout(timeout: Int, unit: TimeUnit): Interceptor.Chain = this
         override fun writeTimeoutMillis() = 10_000
         override fun withWriteTimeout(timeout: Int, unit: TimeUnit): Interceptor.Chain = this
+
+        // OkHttp 5.5 exposes per-chain client overrides. This interceptor should leave all alone.
+        private fun unused(): Nothing = error("Reading power must not inspect or override HTTP client configuration")
+        override val followSslRedirects: Boolean get() = unused()
+        override val followRedirects: Boolean get() = unused()
+        override val dns: Dns get() = unused()
+        override fun withDns(dns: Dns): Interceptor.Chain = unused()
+        override val socketFactory: SocketFactory get() = unused()
+        override fun withSocketFactory(socketFactory: SocketFactory): Interceptor.Chain = unused()
+        override val retryOnConnectionFailure: Boolean get() = unused()
+        override fun withRetryOnConnectionFailure(retryOnConnectionFailure: Boolean): Interceptor.Chain = unused()
+        override val authenticator: Authenticator get() = unused()
+        override fun withAuthenticator(authenticator: Authenticator): Interceptor.Chain = unused()
+        override val cookieJar: CookieJar get() = unused()
+        override fun withCookieJar(cookieJar: CookieJar): Interceptor.Chain = unused()
+        override val cache: Cache? get() = unused()
+        override fun withCache(cache: Cache?): Interceptor.Chain = unused()
+        override val proxy: Proxy? get() = unused()
+        override fun withProxy(proxy: Proxy?): Interceptor.Chain = unused()
+        override val proxySelector: ProxySelector get() = unused()
+        override fun withProxySelector(proxySelector: ProxySelector): Interceptor.Chain = unused()
+        override val proxyAuthenticator: Authenticator get() = unused()
+        override fun withProxyAuthenticator(proxyAuthenticator: Authenticator): Interceptor.Chain = unused()
+        override val sslSocketFactoryOrNull: SSLSocketFactory? get() = unused()
+        override fun withSslSocketFactory(sslSocketFactory: SSLSocketFactory?, x509TrustManager: X509TrustManager?): Interceptor.Chain = unused()
+        override val x509TrustManagerOrNull: X509TrustManager? get() = unused()
+        override val hostnameVerifier: HostnameVerifier get() = unused()
+        override fun withHostnameVerifier(hostnameVerifier: HostnameVerifier): Interceptor.Chain = unused()
+        override val certificatePinner: CertificatePinner get() = unused()
+        override fun withCertificatePinner(certificatePinner: CertificatePinner): Interceptor.Chain = unused()
+        override val connectionPool: ConnectionPool get() = unused()
+        override fun withConnectionPool(connectionPool: ConnectionPool): Interceptor.Chain = unused()
+        override val eventListener: EventListener get() = unused()
     }
 
     @Test
