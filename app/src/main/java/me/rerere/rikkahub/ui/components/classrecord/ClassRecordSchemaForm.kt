@@ -480,7 +480,7 @@ private val schemaChoiceLabels = mapOf(
     "image" to "图片", "video" to "视频", "audio" to "音频", "archive" to "压缩包", "other" to "其他",
     "ready" to "已整理", "processing" to "处理中", "attention" to "待检查", "published" to "已发布", "candidate" to "待确认",
     "name" to "按名称", "latest" to "最新在前", "oldest" to "最早在前", "uploaded-oldest" to "最早上传在前",
-    "admin" to "管理员", "system-admin" to "系统管理员", "school-admin" to "学校管理员", "teacher" to "教师", "student" to "学生",
+    "admin" to "管理员", "system-admin" to "系统管理员", "school-admin" to "学校管理员", "class-admin" to "班级管理员", "teacher" to "教师", "student" to "学生",
     "regular" to "普通班", "special" to "特长班", "key" to "重点班", "fast" to "快速识别", "realtime" to "实时识别",
     "staff" to "教职工", "pending" to "待处理", "running" to "运行中", "completed" to "已完成", "done" to "已完成",
     "failed" to "失败", "error" to "异常", "cancelled" to "已取消", "canceled" to "已取消", "queued" to "排队中",

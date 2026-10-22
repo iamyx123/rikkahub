@@ -38,6 +38,7 @@ class ClassRecordSchemaFormTest {
         assertEquals("full", classRecordDisplayValue("model", JsonPrimitive("full")))
         assertEquals("待处理", classRecordDisplayValue("status", JsonPrimitive("pending")))
         assertEquals("运行中", classRecordDisplayValue("state", JsonPrimitive("running")))
+        assertEquals("班级管理员", classRecordDisplayValue("role", JsonPrimitive("class-admin")))
     }
 
     @Test
