@@ -30,6 +30,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import me.rerere.common.android.appTempFolder
 import me.rerere.rikkahub.di.appModule
 import me.rerere.rikkahub.di.dataSourceModule
@@ -107,6 +109,7 @@ class RikkaHubApp : Application() {
             modules(appModule, viewModelModule, dataSourceModule, repositoryModule)
         }
         this.createNotificationChannel()
+        initializeReadingPower()
 
         // set cursor window size to 32MB
         DatabaseUtil.setCursorWindowSize(32 * 1024 * 1024)
@@ -146,6 +149,25 @@ class RikkaHubApp : Application() {
         incrementLaunchCount()
 
         // Composer.setDiagnosticStackTraceMode(ComposeStackTraceMode.Auto)
+    }
+
+    private fun initializeReadingPower() {
+        val controller = get<me.rerere.rikkahub.data.power.ReadingPowerController>()
+        val lifecycle = ProcessLifecycleOwner.get().lifecycle
+        controller.setAppForeground(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        lifecycle.addObserver(LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> controller.setAppForeground(true)
+                Lifecycle.Event.ON_STOP -> controller.setAppForeground(false)
+                else -> Unit
+            }
+        })
+        get<AppScope>().launch {
+            val store = get<SettingsStore>()
+            store.awaitLoaded()
+            store.settingsFlow.map { it.readingPowerEnabled to it.readingPowerDelaySeconds }
+                .distinctUntilChanged().collect { (enabled, seconds) -> controller.configure(enabled, seconds) }
+        }
     }
 
     private fun resumeMediaCreations() {

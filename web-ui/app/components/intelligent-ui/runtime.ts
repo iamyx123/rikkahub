@@ -1,8 +1,13 @@
 let worker: Worker | undefined;
 let idle: ReturnType<typeof setTimeout> | undefined;
 let queue: Promise<unknown> = Promise.resolve();
+export function disposeUiRuntime() {
+  clearTimeout(idle);
+  worker?.terminate();
+  worker = undefined;
+}
 export type UiState = Record<string, unknown>;
-export type UiEvent = { type: string; target?: string; value?: unknown };
+export type UiEvent = { type: string; target?: string; value?: unknown; transient?: boolean; commit?: boolean };
 export interface UiNode {
   type: string;
   id: string;

@@ -16,6 +16,7 @@ import {
 } from "./runtime";
 import "./interactive-ui.css";
 import { CardIcon, Carousel, Popover, Countdown, SearchPhoto, StreetMap } from "./extras";
+import { interactiveUiPendingUpdates } from "./pending-updates";
 
 export const InteractiveMessage = React.createContext<{
   conversationId: string;
@@ -29,14 +30,22 @@ export function InteractiveUi({ source }: { source: string }) {
   const host = React.useContext(InteractiveMessage);
   const key = React.useMemo(() => sourceKey(source.trimEnd()), [source]);
   const saved = host?.message.interactiveUiStates?.[key];
-  const pending = React.useRef(0);
-  const state = React.useRef<UiState>(saved ?? {});
+  const card = `${host?.message.id}/${key}`;
+  const state = React.useMemo(
+    () => interactiveUiPendingUpdates.stateFor(host?.conversationId ?? "", card, saved),
+    [host?.conversationId, card],
+  );
   const [result, setResult] = React.useState<UiResult>();
-  const [error, setError] = React.useState("");
+  const error = React.useSyncExternalStore(
+    interactiveUiPendingUpdates.subscribe,
+    () => interactiveUiPendingUpdates.failure(host?.conversationId ?? "", card),
+    () => "",
+  );
   const [showSource, setShowSource] = React.useState(false);
-  const queue = React.useRef(Promise.resolve());
   const latest = React.useRef(host);
   latest.current = host;
+  const currentCard = React.useRef(card);
+  currentCard.current = card;
   const alive = React.useRef(true);
   React.useEffect(() => {
     alive.current = true;
@@ -45,41 +54,36 @@ export function InteractiveUi({ source }: { source: string }) {
     };
   }, []);
   const evaluate = React.useCallback(
-    (event?: UiEvent) => {
-      pending.current++;
-      queue.current = queue.current
-        .catch(() => {})
-        .then(async () => {
-          const h = latest.current;
-          if (!h || h.loading || h.message.role !== "ASSISTANT") {
-            pending.current--;
-            return;
-          }
+    (event?: UiEvent, restored?: UiState) => {
+      const h = latest.current;
+      if (!h || h.loading || h.message.role !== "ASSISTANT") return;
+      state.pending++;
+      void interactiveUiPendingUpdates.enqueue(h.conversationId, card, async () => {
           try {
+            if (restored) state.current = restored;
             const next = await renderUi(source, state.current, event);
             state.current = next.state;
-            if (alive.current) {
+            if (alive.current && currentCard.current === card) {
               setResult(next);
-              setError("");
             }
-            if (event) {
+            let persisted = !event?.transient && Object.keys(next.state).length === 0;
+            if (!event?.transient && Object.keys(next.state).length > 0) {
               const saved = await api.post<{ saved: boolean }>(
                 `conversations/${h.conversationId}/messages/${h.message.id}/interactive-ui`,
                 { source, state: next.state },
               );
               if (!saved.saved) throw Error("原卡片已改变，状态未保存");
+              persisted = true;
             }
             for (const effect of next.effects) {
-              if (!alive.current) break;
+              if (!alive.current || currentCard.current !== card) break;
               if (effect.type === "draft") {
                 const store = useChatInputStore.getState();
                 store.setText(
                   h.conversationId,
                   (store.drafts[h.conversationId]?.text ?? "") +
                     "\n" +
-                    effect.text +
-                    "\n" +
-                    JSON.stringify(effect.state),
+                    effect.text,
                 );
                 toast("已放入输入框，请检查后发送");
               } else if (effect.type === "copy") await copyTextToClipboard(effect.text);
@@ -87,26 +91,30 @@ export function InteractiveUi({ source }: { source: string }) {
                 window.open(effect.text, "_blank", "noopener,noreferrer");
               }
             }
-          } catch (e) {
-            if (alive.current) setError(e instanceof Error ? e.message : "卡片未能保存，请重试");
+            return persisted;
           } finally {
-            pending.current--;
+            state.pending--;
           }
+        }).catch(() => {
+          // The coordinator retains this card's failure and exposes it to both the card and send.
         });
     },
-    [source],
+    [source, card, state],
   );
   React.useEffect(() => {
-    state.current = saved ?? {};
+    const signature = JSON.stringify(saved);
+    if (state.pending === 0 && saved && signature !== state.observedSaved) {
+      state.current = saved;
+      state.observedSaved = signature;
+    }
     if (!host?.loading) evaluate();
-  }, [source, host?.loading]);
+  }, [source, host?.loading, card]);
   // Server echoes and other clients can update a card without running its button effects again.
   React.useEffect(() => {
-    if (pending.current === 0 && saved && JSON.stringify(saved) !== JSON.stringify(state.current)) {
-      queue.current = queue.current.then(() => {
-        state.current = saved;
-      });
-      evaluate();
+    const signature = JSON.stringify(saved);
+    if (state.pending === 0 && saved && signature !== state.observedSaved) {
+      state.observedSaved = signature;
+      if (signature !== JSON.stringify(state.current)) evaluate(undefined, saved);
     }
   }, [saved, evaluate]);
   if (!host || host.message.role !== "ASSISTANT")
@@ -372,20 +380,7 @@ function Node({ node, dispatch }: { node: any; dispatch: (e: UiEvent) => void })
     case "TextArea":
       return <Input p={p} type={type} dispatch={dispatch} />;
     case "Slider":
-      return (
-        <label>
-          {p.label}: {p.value}
-          <input
-            aria-label={p.label ?? "数值"}
-            type="range"
-            min={p.min}
-            max={p.max}
-            step={p.step ?? "any"}
-            value={p.value}
-            onChange={(e) => change(Number(e.target.value))}
-          />
-        </label>
-      );
+      return <LiveSlider p={p} dispatch={dispatch} />;
     case "Checkbox":
     case "Switch":
       return (
@@ -399,8 +394,8 @@ function Node({ node, dispatch }: { node: any; dispatch: (e: UiEvent) => void })
         <label>
           {p.label}
           <select value={p.value} onChange={(e) => change(e.target.value)}>
-            {p.options?.slice(0, 40).map((v: string) => (
-              <option key={v}>{v}</option>
+            {p.options?.slice(0, 40).map((option: string | {value:string;label:string}) => (
+              <option key={typeof option === "string" ? option : option.value} value={typeof option === "string" ? option : option.value}>{typeof option === "string" ? option : option.label}</option>
             ))}
           </select>
         </label>
@@ -411,16 +406,18 @@ function Node({ node, dispatch }: { node: any; dispatch: (e: UiEvent) => void })
         <fieldset>
           <legend>{p.label}</legend>
           <div className="ui-row">
-            {p.options?.slice(0, 40).map((v: string) => (
+            {p.options?.slice(0, 40).map((option: string | {value:string;label:string}) => {
+              const v = typeof option === "string" ? option : option.value;
+              return (
               <Button
                 key={v}
                 variant={p.value === v ? "default" : "outline"}
                 aria-pressed={p.value === v}
                 onClick={() => change(v)}
               >
-                {v}
+                {typeof option === "string" ? option : option.label}
               </Button>
-            ))}
+            );})}
           </div>
         </fieldset>
       );
@@ -585,16 +582,40 @@ function Vector({ node }: { node: UiNode }): React.ReactNode {
       return null;
   }
 }
+function LiveSlider({p, dispatch}: {p:Record<string,any>;dispatch:(event:UiEvent)=>void}) {
+  const [value,setValue]=React.useState(Number(p.value));
+  const current=React.useRef(Number(p.value));
+  const dragging=React.useRef(false);
+  const timer=React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  React.useEffect(()=>{if(!dragging.current){setValue(Number(p.value));current.current=Number(p.value);}},[p.value]);
+  React.useEffect(()=>()=>clearTimeout(timer.current),[]);
+  const commit=()=>{
+    clearTimeout(timer.current);timer.current=undefined;dragging.current=false;
+    dispatch({type:"change",target:p.valueBinding,value:current.current,commit:true});
+  };
+  return <label>{p.label}: {value} {p.unit}
+    <input aria-label={p.label??"数值"} type="range" min={p.min} max={p.max} step={p.step??"any"} value={value}
+      onPointerDown={()=>{dragging.current=true;}}
+      onChange={event=>{
+        const next=Number(event.target.value);dragging.current=true;current.current=next;setValue(next);
+        if(timer.current===undefined)timer.current=setTimeout(()=>{
+          timer.current=undefined;
+          dispatch({type:"change",target:p.valueBinding,value:current.current,transient:true});
+        },60);
+      }} onPointerUp={commit} onPointerCancel={commit} onKeyUp={commit} onBlur={()=>{if(dragging.current)commit();}} />
+  </label>;
+}
+
 function Chart({ p }: { p: Record<string, any> }) {
   const rows = (p.data ?? []).slice(0, 200),
     series: string[] = (p.series ?? []).slice(0, 8);
   const values: number[] = rows.flatMap((r: any) => series.map((k) => Number(r[k]) || 0)),
-    low = Math.min(0, ...values),
-    high = Math.max(1, ...values);
+    low = Number.isFinite(p.yMin) ? p.yMin : Math.min(0, ...values),
+    high = Math.max(low + .001, Number.isFinite(p.yMax) ? p.yMax : Math.max(1, ...values));
   const colors = ["var(--primary)", "var(--foreground)", "var(--muted-foreground)"];
   const y = (n: number) => 180 - ((n - low) / (high - low)) * 160;
   const xs = rows.map((r: any) => Number(r[p.xKey]));
-  const numericX = p.type === "scatter" && xs.every(Number.isFinite);
+  const numericX = p.type !== "bar" && xs.every(Number.isFinite);
   const minX = Math.min(...xs),
     xRange = Math.max(0.001, Math.max(...xs) - minX);
   const x = (i: number) =>
@@ -604,7 +625,11 @@ function Chart({ p }: { p: Record<string, any> }) {
   return (
     <figure>
       <h3>{p.title}</h3>
-      <svg viewBox="0 0 400 200" role="img" aria-label={p.title ?? "图表"}>
+      <svg viewBox="0 0 400 200" role="img" aria-label={p.title ?? "图表"} data-y-min={low} data-y-max={high}>
+        {!["pie","donut"].includes(p.type) && [0,.5,1].map(fraction=><g key={fraction} stroke="var(--muted-foreground)" strokeWidth=".3">
+          <line x1="20" x2="380" y1={180-fraction*160} y2={180-fraction*160}/>
+          <text x="20" y={176-fraction*160} fill="var(--foreground)" stroke="none" fontSize="9">{(low+fraction*(high-low)).toFixed(1)}</text>
+        </g>)}
         {p.type === "pie" || p.type === "donut"
           ? rows.map((r: any, i: number) => {
               const v = Math.max(0, Number(r[series[0]]) || 0),

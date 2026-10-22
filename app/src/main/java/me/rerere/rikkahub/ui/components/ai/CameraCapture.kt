@@ -71,7 +71,7 @@ internal fun rememberCameraCaptureAction(
         toaster.show(message, type = ToastType.Error)
     }
 
-    val (_, launchCrop) = useCropLauncher(
+    val launchCrop = useCropLauncher(
         onCroppedImageReady = { uri ->
             try {
                 addPhoto(uri)

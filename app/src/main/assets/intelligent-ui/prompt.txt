@@ -26,63 +26,63 @@ Arguments marked with ? are optional. Sub-components can be inline or referenced
 Props typed `ActionExpression` accept one @step, or Action([@steps...]) for several. See the Action section for available steps (@ToAssistant, @OpenUrl, @Set, @Reset, @CopyToClipboard).
 Props marked `$binding<type>` accept a `$variable` reference for two-way binding.
 
-Col(children: any[], gap?: number) — Vertical layout; default root. gap in dp.
-Row(children: any[], gap?: number) — Wrapping horizontal layout, suitable for narrow screens.
-Grid(children: any[], columns?: number) — Responsive grid, 1 to 3 columns.
-Box(children: any[], background?: string, padding?: number) — Grouped content; use surface, primary or secondary colors.
-Card(title: string, children: any[]) — Material card with a heading and content.
+Col(children: any[], gap?: number, align?: string) — Native vertical layout; default root. gap in dp.
+Row(children: any[], gap?: number, align?: string, justify?: string, wrap?: boolean) — Native wrapping horizontal layout, suitable for narrow screens.
+Grid(children: any[], columns?: number, minChildWidth?: number, gap?: number) — Responsive native grid, 1 to 3 columns.
+Box(children?: any[], direction?: string, gap?: number, padding?: number, background?: string, radius?: string, border?: boolean, width?: number | string, height?: number | string, flex?: number, align?: string, justify?: string, wrap?: boolean) — Native flex group. Use native theme presets; no HTML/CSS. Legacy Box(children,background,padding) accepted.
+Card(childrenOrTitle: any[] | string, variantOrChildren?: string | any[], padding?: number, gap?: number) — Native Material panel: Card(children, variant?, padding?, gap?). Legacy Card(title, children) is also accepted.
 Form(children: any[]) — Input group. Submit with Button and @ToAssistant; all variables accompany it.
 Carousel(children: any[], itemWidth?: number, gap?: number) — Scrollable cards with previous/next buttons; no auto-scroll.
 Popover(trigger: any, content: any) — Tap the trigger to open details. Both slots accept text or components.
-Title(text: string) — Text content; keep Chinese labels concise.
-Caption(text: string) — Text content; keep Chinese labels concise.
-Label(text: string) — Text content; keep Chinese labels concise.
-Badge(text: string) — Text content; keep Chinese labels concise.
-Markdown(text: string) — Text content; keep Chinese labels concise.
-Quote(text: string) — Text content; keep Chinese labels concise.
-Code(text: string) — Text content; keep Chinese labels concise.
-Math(text: string) — LaTeX formula, no delimiters.
-Text(text: string | any[]) — Text or inline components (Link, Icon, Math); text supports Markdown emphasis.
+Title(text: string, size?: string, color?: string) — Native Material heading. Sizes sm/md/lg/xl/2xl/3xl use theme typography.
+Caption(text: string, color?: string) — Native secondary text.
+Label(text: string) — Native field or group label.
+Badge(text: string, color?: string, icon?: string) — Native theme status badge, not a button.
+Markdown(text: string) — Readable prose with Markdown.
+Quote(text: string, cite?: string) — Quotation with optional source.
+Code(code: string, language?: string) — Source code with optional language.
+Math(tex: string, inline?: boolean) — LaTeX formula, no delimiters.
+Text(text: string | any[], size?: string, color?: string, weight?: string, italic?: boolean, lineThrough?: boolean, tabularNums?: boolean, maxLines?: number) — Native text or inline components; Markdown emphasis is supported.
 Link(text: string, url: string) — A user-clicked HTTP(S) link.
 Divider() — Section separator.
 Spacer(size?: number) — Vertical space in dp, max 48.
-List(items: any[], variant?: string) — List of strings or ListItem components. variant bullets, numbers or timeline.
-ListItem(content: any, label?: string) — List entry, optional timeline label; content is text or a component.
-Button(label: string, action: ActionExpression, variant?: string) — User-triggered action. variant filled, tonal, or text.
-IconButton(icon: string, action: ActionExpression, label: string) — Accessible icon button with a required descriptive label.
-Pressable(children: any[], action: ActionExpression, label?: string) — Clickable container; do not nest other buttons or inputs inside it.
-Icon(name: string, size?: number, label?: string) — A bundled Lucide icon by kebab-case name, default size 24. No network request.
-Input(value: $binding<any>, label: string, placeholder?: string) — Editable $variable. NumberInput writes a number; other inputs write text.
-TextArea(value: $binding<any>, label: string, placeholder?: string) — Editable $variable. NumberInput writes a number; other inputs write text.
-NumberInput(value: $binding<any>, label: string, placeholder?: string) — Editable $variable. NumberInput writes a number; other inputs write text.
-Slider(value: $binding<any>, min: number, max: number, step?: number, label?: string) — Bound numeric value, local reactive calculation.
-Checkbox(value: $binding<any>, label: string) — Boolean $variable.
-Switch(value: $binding<any>, label: string) — Boolean $variable.
-Select(value: $binding<any>, options: string[], label?: string) — Choose a string value from options.
-RadioGroup(value: $binding<any>, options: string[], label?: string) — Choose a string value from options.
-SegmentedControl(value: $binding<any>, options: string[], label?: string) — Choose a string value from options.
+List(items: any[], marker?: string, timeline?: boolean) — Native list. Markers bullet, number, none; optional timeline. Legacy numbers/timeline accepted.
+ListItem(titleOrContent: any, descriptionOrLabel?: string, marker?: string, children?: any[]) — ListItem(title,description?,marker?,children?). Legacy ListItem(component,label) accepted.
+Button(label: string, action?: ActionExpression, variant?: string, color?: string, size?: string, icon?: string, disabled?: boolean, block?: boolean) — User-triggered native button. Variants solid, outline, soft, ghost (legacy filled, tonal, text accepted).
+IconButton(icon: string, action?: ActionExpression, label?: string, variant?: string) — Accessible native icon button; include a descriptive label.
+Pressable(children: any[], action?: ActionExpression, selectedOrLabel?: boolean | string, padding?: number, background?: string, radius?: string) — Clickable native container; do not nest other buttons or inputs inside it.
+Icon(name: string, size?: number | string, colorOrLabel?: string) — A bundled Lucide icon. Size sm, md, lg, xl or dp; no network request.
+Input(value: $binding<any>, label?: string, typeOrPlaceholder?: string, placeholder?: string) — Native editable $variable. Input(value,label?,type?,placeholder?) accepts text/number; NumberInput always writes numbers.
+TextArea(value: $binding<any>, label?: string, typeOrPlaceholder?: string, placeholder?: string) — Native editable $variable. Input(value,label?,type?,placeholder?) accepts text/number; NumberInput always writes numbers.
+NumberInput(value: $binding<any>, label?: string, typeOrPlaceholder?: string, placeholder?: string) — Native editable $variable. Input(value,label?,type?,placeholder?) accepts text/number; NumberInput always writes numbers.
+Slider(value: $binding<any>, min: number, max: number, step?: number, label?: string, unit?: string, marks?: {value: number, label: string}[]) — Native draggable numeric control. Bind a $variable and derive Chart/Svg geometry from it; updates while dragging.
+Checkbox(checked: $binding<any>, label: string, lineThrough?: boolean) — Native boolean checkbox with a $variable.
+Switch(value: $binding<any>, label: string) — Native boolean switch with a $variable.
+Select(value: $binding<any>, options: (string | {value: string, label: string, description?: string})[], label?: string, placeholder?: string) — Native dropdown; options may be strings or {value,label} records.
+RadioGroup(value: $binding<any>, options: (string | {value: string, label: string, description?: string})[], label?: string, variant?: string) — Native radio choices, including {value,label,description} options.
+SegmentedControl(value: $binding<any>, options: (string | {value: string, label: string, description?: string})[], blockOrLabel?: boolean | string) — Native single-choice segmented buttons. Third parameter is block; legacy label is accepted.
 DatePicker(value: $binding<any>, label: string) — ISO yyyy-MM-dd date input.
 Timer(seconds: $binding<any>, label?: string) — User-started countdown with pause and reset. On e-ink the running display stays static until completion; updates the bound seconds on pause/reset/completion.
 Progress(value: number, max?: number, label?: string) — Static progress with value label; no animation.
-Flashcard(front: any, back: any) — Tap to reveal the answer; sides accept text or components. No flip animation.
+Flashcard(front: any, back: any, hint?: string) — Tap to reveal the answer; sides accept text or components. No flip animation.
 Celebration(when: boolean, message?: string) — Static success confirmation when the condition becomes true; no confetti or animation.
 Accordion(title: string, children: any[]) — Expandable details.
 Table(columns: string[], rows: any[][]) — Data table, max 100 rows; cells may contain components.
-Chart(type: "line" | "bar" | "scatter" | "area" | "pie" | "donut", data: Record<string, any>[], xKey: string, series: string[], title?: string) — Native static chart. Rows contain xKey labels and named numeric series; max 200 points.
-Image(url: string, alt: string) — HTTPS image with a meaningful description. No video, iframe or HTML.
-SearchImage(query: string, alt?: string) — User-triggered Wikipedia/Wikimedia photo search with source attribution; never searches before a click.
-Map(markers: any[], title?: string) — Interactive map; markers are MapMarker components or {lat,lon,label,category} objects. Street tiles and road overview load only on click. Category filters, zoom and expansion; no live navigation.
-MapMarker(lat: number, lon: number, label: string, category?: string) — A map location, optionally grouped by category. Use inside Map markers.
-Svg(viewBox: string, children: any[], description: string) — Native vector diagram. viewBox: "0 0 400 240". No scripts, animations or external resources.
-G(children: any[]) — Group vector shapes.
-Circle(cx: number, cy: number, r: number, fill?: string, stroke?: string, strokeWidth?: number) — Vector shape; colors are ink, primary, secondary, surface, muted or #RRGGBB.
-Ellipse(cx: number, cy: number, rx: number, ry: number, fill?: string, stroke?: string, strokeWidth?: number) — Vector shape; colors are ink, primary, secondary, surface, muted or #RRGGBB.
-Rect(x: number, y: number, width: number, height: number, fill?: string, stroke?: string, strokeWidth?: number) — Vector shape; colors are ink, primary, secondary, surface, muted or #RRGGBB.
-Line(x1: number, y1: number, x2: number, y2: number, fill?: string, stroke?: string, strokeWidth?: number) — Vector shape; colors are ink, primary, secondary, surface, muted or #RRGGBB.
-Path(data: string, fill?: string, stroke?: string, strokeWidth?: number) — SVG path data.
-Polyline(data: string, fill?: string, stroke?: string, strokeWidth?: number) — Space-separated x,y coordinates.
-Polygon(data: string, fill?: string, stroke?: string, strokeWidth?: number) — Space-separated x,y coordinates.
-SvgText(x: number, y: number, text: string, size?: number, fill?: string) — Text inside a vector diagram.
+Chart(type: "line" | "bar" | "scatter" | "area" | "pie" | "donut", data: Record<string, any>[], x?: string, series?: string[], format?: string, currency?: string, stacked?: boolean, height?: number, yMin?: number, yMax?: number, title?: string) — Reactive native chart: Chart(type,data,x?,series?,format?,currency?,stacked?,height?,yMin?,yMax?,title?). For parameter exploration set FIXED yMin/yMax so rescaling does not hide curve changes. Legacy fifth-argument title is accepted. Max 200 points.
+Image(src: string, alt: string, aspectRatio?: number, radius?: string, fit?: string) — HTTPS image with a meaningful description. No video, iframe or HTML.
+SearchImage(query: string, aspectRatioOrAlt?: number | string, radius?: string, fit?: string) — User-triggered Wikipedia/Wikimedia photo search with source attribution. Optional aspectRatio; never searches before a click.
+Map(markers: any[], routeOrTitle?: boolean | string, selected?: any, height?: number) — Native map; click to load streets or route. Optional selected $variable records the clicked marker label. No automatic network request.
+MapMarker(labelOrLat: string | number, latOrLon: number, lngOrLabel: number | string, category?: string, icon?: string) — MapMarker(label,lat,lng,category?,icon?). Legacy MapMarker(lat,lon,label) accepted.
+Svg(childrenOrViewBox: any[] | string, viewBoxOrChildren: string | any[], widthOrDescription?: number | string, height?: number | string) — Reactive native vector diagram: Svg(children,viewBox,width?,height?). Legacy Svg(viewBox,children,description) accepted. Shapes can use $variables and expressions.
+G(children: any[], transform?: string, opacity?: number) — Group native vector shapes.
+Circle(cx: number, cy: number, r: number, fill?: string, stroke?: string, strokeWidth?: number, opacity?: number) — Native vector shape; colors use theme presets or #RRGGBB.
+Ellipse(cx: number, cy: number, rx: number, ry: number, fill?: string, stroke?: string, strokeWidth?: number, opacity?: number) — Native vector shape; colors use theme presets or #RRGGBB.
+Rect(x: number, y: number, width: number, height: number, fill?: string, stroke?: string, strokeWidth?: number, opacity?: number, rx?: number) — Native vector shape; colors use theme presets or #RRGGBB.
+Line(x1: number, y1: number, x2: number, y2: number, strokeOrFill?: string, widthOrStroke?: number | string, opacityOrWidth?: number) — Line(x1,y1,x2,y2,stroke?,strokeWidth?,opacity?). Legacy fill/stroke/width accepted.
+Path(data: string, fill?: string, stroke?: string, strokeWidth?: number, opacity?: number) — Native path data.
+Polyline(data: string, fill?: string, stroke?: string, strokeWidth?: number, opacity?: number) — Space-separated x,y coordinates.
+Polygon(data: string, fill?: string, stroke?: string, strokeWidth?: number, opacity?: number) — Space-separated x,y coordinates.
+SvgText(textOrX: string | number, xOrY: number, yOrText: number | string, size?: number, fill?: string, anchor?: string, weight?: string) — SvgText(text,x,y,size?,fill?,anchor?,weight?). Legacy SvgText(x,y,text) accepted.
 
 ## Built-in Functions
 
@@ -213,6 +213,11 @@ root = Col([Title("费用计算"),NumberInput($amount,"数量"),Slider($price,1,
 $answer = ""
 root = Col([Title("复习卡"),Flashcard("牛顿第二定律？","F = ma"),RadioGroup($answer,["F = ma","F = mv"],"选择正确公式"),Text($answer == "" ? "请选择答案" : ($answer == "F = ma" ? "回答正确" : "再想一想"))])
 
+$a = 1
+$shift = 0
+points = @Each(@Range(-2,2.01,0.1),"x",{x:x,y:$a*x*x+$shift})
+root = Col([Title("拖动观察抛物线"),Slider($a,-3,3,0.1,"系数 a"),Slider($shift,-4,4,0.5,"上下平移"),Chart("line",points,"x",["y"],"number",null,false,240,-16,16,"y = a x² + b"),Button("恢复初始",@Reset($a,$shift)),Button("解释当前图形",@ToAssistant("请解释当前曲线的变化"))])
+
 
 ## Inline Mode
 
@@ -247,8 +252,11 @@ Before finishing, walk your output and verify:
 2. Every referenced name is defined. Every defined name (other than root) is reachable from root.
 3. Every $binding appears in at least one component or expression.
 
-- Use interactive UI only when useful, not for every reply. Never put the whole answer only in UI; include readable text for export and fallback.
+- When the request involves parameter changes, science or math exploration, learning plans, comparisons, checklists, steps or a control panel, proactively provide a WORKING native UI, not a static card or a suggestion to make one. Plain factual questions may stay in Markdown. Include a readable explanation before the UI.
 - Use $variables for all editable state. Inputs update locally without a model call. Button actions happen only on tap. @ToAssistant drafts a follow-up for the user to review.
 - Use the exact listed component signatures. Maximum 300 elements, 100 table rows, 200 chart points, 24 levels, and 32 state variables. Avoid huge @Range and deeply nested expressions.
 - Map loads street tiles and a driving-road overview only after a click; it is not walking/transit guidance. Image requires a trustworthy HTTPS URL; use SearchImage when a photo must be found.
 - Only Timer may count down after a user starts it. No JavaScript, arbitrary HTML, embedded websites, automatic network requests or tools. Prefer static vector diagrams, charts, math and local controls.
+- For draggable science/math: declare literal $parameter defaults, bind Slider($parameter,...), derive rows with @Each(@Range(...),"x",{x:x,y:...$parameter...}), and pass the derived rows to Chart. Use fixed yMin/yMax (arguments 9 and 10) and axes, or fixed Svg viewBox. Otherwise autoscaling can hide the change. Calculations and geometry MUST read the bound variable; do not precompute static values.
+- Form values travel invisibly with the next user message. @ToAssistant contains only natural language intent. Never put variable names, state JSON, binding metadata, or a fake UI_ACTION protocol in the user-visible draft or answer.
+- Native widgets provide the visual style. Compose built-in controls and meaningful diagrams; do not invent HTML/CSS skins, decorate every paragraph as a card, or use unsupported signatures. $variable defaults must be literals, derived expressions belong in ordinary named statements.

@@ -7,8 +7,8 @@ import kotlinx.serialization.json.Json
 import me.rerere.highlight.CodeHighlighter
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.ai.ChatRequestFactory
-import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.ai.tools.ChatToolFactory
+import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.study.StudyDesktopContentRepository
 import me.rerere.rikkahub.data.study.StudyDesktopManager
@@ -51,6 +51,14 @@ val appModule = module {
         AppScope()
     }
 
+    single {
+        me.rerere.rikkahub.data.power.ReadingPowerController(
+            get<AppScope>(),
+            me.rerere.rikkahub.data.power.AndroidFlightModeAccess(get()),
+            me.rerere.rikkahub.data.power.AndroidFlightModeRecoveryStore(get()),
+        )
+    }
+
     single<EmojiData> {
         EmojiUtils.loadEmoji(get())
     }
@@ -72,7 +80,7 @@ val appModule = module {
     }
 
     single {
-        WorkspaceTerminalSessionManager(get(), get())
+        WorkspaceTerminalSessionManager(get(), get(), get(), get())
     }
 
     // 生成通知与业务解耦：ChatService 只发事件，通知由这里消费；
@@ -93,6 +101,7 @@ val appModule = module {
             conversationRepository = get(),
             localTools = get(),
             mcpManager = get(),
+            classRecordRepository = get(),
             skillManager = get(),
             workspaceRepository = get(),
         )
@@ -102,6 +111,7 @@ val appModule = module {
         ChatRequestFactory(
             context = get(),
             providerManager = get(),
+            usageRecorder = get(),
             chatToolFactory = get(),
             memoryRepository = get(),
             templateTransformer = get(),
@@ -122,6 +132,7 @@ val appModule = module {
             metaGenerator = get(),
             mcpManager = get(),
             filesManager = get(),
+            readingPower = get(),
             folderRepository = get()
         )
     }

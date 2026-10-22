@@ -80,7 +80,7 @@ fun ImagePrintPreviewDialog(
     }
 
     // 裁切：裁切文件回调后会被删除，需同步读入内存
-    val (_, launchCrop) = useCropLauncher(
+    val launchCrop = useCropLauncher(
         onCroppedImageReady = { uri ->
             runCatching { BitmapFactory.decodeFile(uri.toFile().path) }.getOrNull()?.let { baseBitmap = it }
         },

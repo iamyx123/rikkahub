@@ -66,6 +66,7 @@ export interface AssistantProfile {
   reasoningLevel?: string | null;
   enableWebSearch?: boolean;
   mcpServers?: string[];
+  enableClassRecord?: boolean;
   modeInjectionIds?: string[];
   lorebookIds?: string[];
   allowConversationSystemPrompt?: boolean;

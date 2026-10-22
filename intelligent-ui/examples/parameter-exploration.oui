@@ -1,0 +1,20 @@
+$a = 1
+$b = 0
+$curve = "quadratic"
+$note = ""
+points = @Each(@Range(-2,2.01,0.1),"x",{x:x,y:($curve == "quadratic" ? $a*x*x : $a*x)+$b})
+root = Col([
+  Title("拖动参数，观察图形变化"),
+  Text("拖动滑杆，图线会立即变化。坐标范围固定，便于比较。"),
+  Card([
+    Slider($a,-3,3,0.1,"系数 a"),
+    Slider($b,-4,4,0.5,"上下平移 b"),
+    Select($curve,[{value:"quadratic",label:"抛物线"},{value:"linear",label:"直线"}],"函数类型"),
+    Chart("line",points,"x",["y"],"number",null,false,240,-16,16,"参数与曲线"),
+    Button("恢复初始",@Reset($a,$b,$curve),"outline")
+  ],"soft"),
+  Accordion("观察提示",[Text("a 改变开口方向与陡峭程度，b 改变曲线的上下位置。")]),
+  Carousel([Flashcard("a 大于 0 时？","抛物线开口向上"),Flashcard("b 增加时？","图形整体上移")]),
+  Popover("查看说明",[Text("这里的操作由本机计算，不会自动发送消息。")]),
+  Form([Input($note,"想继续探究的问题","text","可选"),Button("解释当前图形",@ToAssistant("请根据当前参数解释图形的变化"))])
+])

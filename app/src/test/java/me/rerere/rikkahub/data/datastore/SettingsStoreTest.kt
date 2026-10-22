@@ -55,6 +55,70 @@ class SettingsStoreTest {
     private suspend fun reopened(): Settings = open().store.awaitLoaded()
 
     @Test
+    fun `reading power enabled and exact delay survive disk writes unrelated updates and restart`() = runBlocking {
+        val opened = open()
+        val store = opened.store
+        assertEquals(false, store.awaitLoaded().readingPowerEnabled)
+        assertEquals(30, store.settingsFlow.value.readingPowerDelaySeconds)
+        store.update { it.copy(readingPowerEnabled = true, readingPowerDelaySeconds = 0) }
+        assertEquals(true, opened.disk.data.first()[SettingsStore.READING_POWER_ENABLED])
+        assertEquals(0, opened.disk.data.first()[SettingsStore.READING_POWER_DELAY_SECONDS])
+        val restarted = open().store
+        assertEquals(true, restarted.awaitLoaded().readingPowerEnabled)
+        assertEquals(0, restarted.settingsFlow.value.readingPowerDelaySeconds)
+        restarted.update { it.copy(titlePrompt = "unrelated") }
+        assertEquals(0, reopened().readingPowerDelaySeconds)
+        val again = open().store
+        again.update { it.copy(readingPowerEnabled = false, readingPowerDelaySeconds = 3600) }
+        val disabled = reopened()
+        assertEquals(false, disabled.readingPowerEnabled)
+        assertEquals(3600, disabled.readingPowerDelaySeconds)
+    }
+
+    @Test
+    fun `reading power delay is clamped to supported seconds on update and restart`() = runBlocking {
+        val store = open().store
+        store.update { it.copy(readingPowerDelaySeconds = -1) }
+        assertEquals(0, reopened().readingPowerDelaySeconds)
+        val restarted = open().store
+        restarted.update { it.copy(readingPowerDelaySeconds = Int.MAX_VALUE) }
+        assertEquals(3600, reopened().readingPowerDelaySeconds)
+        open().disk.edit { it[SettingsStore.READING_POWER_DELAY_SECONDS] = -5 }
+        val loaded = open().store
+        assertEquals(0, loaded.awaitLoaded().readingPowerDelaySeconds)
+        loaded.update { it.copy(titlePrompt = "persist normalized delay") }
+        assertEquals(0, reopened().readingPowerDelaySeconds)
+    }
+
+    @Test
+    fun `interactive UI custom prompt survives disk writes and restart`() = runBlocking {
+        val opened = open()
+        val store = opened.store
+        assertEquals(null, store.awaitLoaded().interactiveUiPrompt)
+        val custom = "主动使用参数探索界面\n保留课堂例题的顺序。"
+
+        store.update { it.copy(interactiveUiPrompt = custom) }
+
+        assertEquals(custom, opened.disk.data.first()[SettingsStore.INTERACTIVE_UI_PROMPT])
+        val restarted = open().store
+        assertEquals(custom, restarted.awaitLoaded().interactiveUiPrompt)
+        restarted.update { it.copy(titlePrompt = "unrelated update") }
+        assertEquals(custom, reopened().interactiveUiPrompt)
+    }
+
+    @Test
+    fun `resetting interactive UI prompt removes disk override and restores default after restart`() = runBlocking {
+        open().store.update { it.copy(interactiveUiPrompt = "custom") }
+        val restarted = open()
+        assertEquals("custom", restarted.store.awaitLoaded().interactiveUiPrompt)
+
+        restarted.store.update { it.copy(interactiveUiPrompt = null) }
+
+        assertFalse(SettingsStore.INTERACTIVE_UI_PROMPT in restarted.disk.data.first())
+        assertEquals(null, reopened().interactiveUiPrompt)
+    }
+
+    @Test
     fun `legacy custom settings survive loading unrelated updates and restart`() = runBlocking {
         // Values use the keys written by the 2.5.6 custom APK, including non-default nested fields.
         open().disk.edit {

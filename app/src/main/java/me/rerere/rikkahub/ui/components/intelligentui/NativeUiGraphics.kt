@@ -55,18 +55,34 @@ internal fun NativeUiChart(p: JsonObject) {
         else listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.secondary)
     val type = p.text("type")
     val xValues = rows.map { (it[p.text("xKey")] as? JsonPrimitive)?.doubleOrNull }
-    val numericX = type == "scatter" && xValues.all { it != null && it.isFinite() }
+    val numericX = type != "bar" && xValues.all { it != null && it.isFinite() }
     val minX = if(numericX) xValues.filterNotNull().minOrNull() ?: 0.0 else 0.0
     val xRange = if(numericX) ((xValues.filterNotNull().maxOrNull() ?: 1.0)-minX).coerceAtLeast(.001) else 1.0
-    val values = rows.flatMap { row -> series.map { row.number(it) } }
-    val low = minOf(0.0, values.minOrNull() ?: 0.0)
-    val high = maxOf(0.0, values.maxOrNull() ?: 1.0)
+    val domain = me.rerere.rikkahub.data.intelligentui.interactiveChartDomain(p)
+    val low = domain.minimum
+    val high = domain.maximum
     val range = (high-low).coerceAtLeast(.001)
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (p.text("title").isNotBlank()) Text(p.text("title"), style=MaterialTheme.typography.titleSmall)
         if (rows.isEmpty() || series.isEmpty()) Text("暂无图表数据")
-        else Canvas(Modifier.fillMaxWidth().height(200.dp)) {
-            fun point(i: Int, v: Double) = Offset(12f + (if(numericX) ((xValues[i]!!-minX)/xRange).toFloat() else i.toFloat()/maxOf(1,rows.size-1))*(size.width-24f), (size.height-12f-((v-low)/range)*(size.height-24f)).toFloat())
+        else Canvas(Modifier.fillMaxWidth().height(p.number("height", 240.0).coerceIn(160.0, 360.0).dp)) {
+            val left = 44.dp.toPx()
+            val bottom = size.height - 22.dp.toPx()
+            val plotWidth = (size.width - left - 12.dp.toPx()).coerceAtLeast(1f)
+            val plotHeight = (bottom - 12.dp.toPx()).coerceAtLeast(1f)
+            fun point(i: Int, v: Double) = Offset(left + (if(numericX) ((xValues[i]!!-minX)/xRange).toFloat() else i.toFloat()/maxOf(1,rows.size-1))*plotWidth, bottom - domain.fraction(v) * plotHeight)
+            val axisPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color=ink.toArgb();textSize=11.dp.toPx() }
+            for (fraction in listOf(0f, .5f, 1f)) {
+                val y = bottom - fraction * plotHeight
+                drawLine(ink.copy(alpha=.18f), Offset(left,y), Offset(left+plotWidth,y), 1f)
+                val label = "%.1f".format(low + fraction * range)
+                drawContext.canvas.nativeCanvas.drawText(label, 0f, y + axisPaint.textSize/3, axisPaint)
+            }
+            if(rows.isNotEmpty()) {
+                drawContext.canvas.nativeCanvas.drawText(rows.first().text(p.text("xKey")), left, size.height-2.dp.toPx(), axisPaint)
+                val last = rows.last().text(p.text("xKey"))
+                drawContext.canvas.nativeCanvas.drawText(last, (left+plotWidth-axisPaint.measureText(last)).coerceAtLeast(left), size.height-2.dp.toPx(), axisPaint)
+            }
             if (type=="pie" || type=="donut") {
                 val total = rows.sumOf { it.number(series.first()).coerceAtLeast(0.0) }
                 var start = -90f
@@ -78,17 +94,17 @@ internal fun NativeUiChart(p: JsonObject) {
                 }
             } else {
                 val zero = point(0,0.0).y
-                drawLine(ink.copy(alpha=.35f),Offset(0f,zero),Offset(size.width,zero),1f)
+                if (zero in 0f..bottom) drawLine(ink.copy(alpha=.35f),Offset(left,zero),Offset(left+plotWidth,zero),1f)
                 series.forEachIndexed { s,name ->
                     val color = palette[s%palette.size]
                     val points = rows.mapIndexed { i,row -> point(i,row.number(name)) }
                     val path = Path().apply { points.forEachIndexed { i,v -> if(i==0)moveTo(v.x,v.y) else lineTo(v.x,v.y) } }
                     when(type) {
                         "bar" -> rows.forEachIndexed { i,row ->
-                            val group = size.width/rows.size
+                            val group = plotWidth/rows.size
                             val width = group/series.size*.8f
                             val y = point(i,row.number(name)).y
-                            drawRect(color,Offset(i*group+s*group/series.size,minOf(y,zero)),Size(width,kotlin.math.abs(y-zero).coerceAtLeast(1f)))
+                            drawRect(color,Offset(left+i*group+s*group/series.size,minOf(y,zero)),Size(width,kotlin.math.abs(y-zero).coerceAtLeast(1f)))
                         }
                         "scatter" -> points.forEach { drawCircle(color,4f,it) }
                         else -> {

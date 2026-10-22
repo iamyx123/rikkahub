@@ -25,9 +25,6 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.sync.Mutex
@@ -38,6 +35,8 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.data.intelligentui.InteractiveUiRuntime
 import me.rerere.rikkahub.data.intelligentui.interactiveUiKey
+import me.rerere.rikkahub.data.intelligentui.interactiveUiPendingUpdates
+import me.rerere.rikkahub.data.intelligentui.InteractiveUiPersistenceException
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.ui.components.ai.StaticCaretTextField
 import me.rerere.rikkahub.ui.components.richtext.HighlightCodeBlock
@@ -54,6 +53,7 @@ private data class UiMessageContext(
     val enabled: Boolean,
     val save: suspend (String, JsonObject) -> Unit,
     val draft: (String) -> Unit,
+    val conversationId: Uuid? = null,
 )
 private val LocalInteractiveMessage = staticCompositionLocalOf<UiMessageContext?> { null }
 
@@ -69,7 +69,7 @@ fun ProvideInteractiveUi(conversationId: Uuid?, message: UIMessage, enabled: Boo
     val value = remember(conversationId, message, enabled, draft) {
         UiMessageContext(message, enabled && message.role == MessageRole.ASSISTANT,
             save = { source, state -> conversationId?.let { check(service.saveInteractiveUiState(it, message.id, source, state)) { "原卡片已改变，状态未保存" } } },
-            draft = draft)
+            draft = draft, conversationId = conversationId)
     }
     CompositionLocalProvider(
         LocalInteractiveMessage provides value,
@@ -100,51 +100,63 @@ fun InteractiveUiBlock(source: String, complete: Boolean) {
     var error by remember(key) { mutableStateOf<String?>(null) }
     var busy by remember(key) { mutableStateOf(false) }
     var showSource by rememberSaveable(key) { mutableStateOf(false) }
-    var inputJob by remember(key) { mutableStateOf<Job?>(null) }
-    var pendingInput by remember(key) { mutableStateOf<JsonObject?>(null) }
-    val events = remember(key) { Channel<JsonObject>(64) }
+    val mounted = remember(key) { java.util.concurrent.atomic.AtomicBoolean(true) }
     val evaluationMutex = remember(key) { Mutex() }
     val currentHost by rememberUpdatedState(host)
     suspend fun evaluate(event: JsonObject? = null) = evaluationMutex.withLock {
         busy = true
+        var persistenceStarted = false
         try {
+            if (event?.text("type") == "persist") {
+                if (state.isNotEmpty()) { persistenceStarted = true; currentHost.save(source,state) }
+                return@withLock
+            }
             val next = InteractiveUiRuntime.render(context,source,state,event)
             next.text("error").takeIf { it.isNotBlank() }?.let { throw IllegalArgumentException(it) }
             result = next
             state = next["state"]?.jsonObject ?: state
             error = null
-            if (event != null) currentHost.save(source,state)
-            next.list("effects").forEach { item ->
+            val transient = (event?.get("transient") as? JsonPrimitive)?.booleanOrNull == true
+            if (!transient && state.isNotEmpty() && state != currentHost.message.interactiveUiStates[key]) {
+                persistenceStarted = true
+                currentHost.save(source,state)
+            }
+            next.list("effects").takeIf { mounted.get() }?.forEach { item ->
                 val effect = item.jsonObject
                 when (effect.text("type")) {
-                    "draft" -> currentHost.draft(effect.text("text") + "\n" + effect["state"].toString())
+                    "draft" -> currentHost.draft(effect.text("text"))
                     "url" -> if (effect.text("text").startsWith("https://") || effect.text("text").startsWith("http://")) uriHandler.openUri(effect.text("text"))
                     "copy" -> (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
                         .setPrimaryClip(ClipData.newPlainText("交互卡片",effect.text("text")))
                 }
             }
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (failure: Exception) { error = failure.message?.take(200) ?: "卡片暂时无法显示，请查看源码" }
+        catch (failure: Exception) {
+            error = failure.message?.take(200) ?: "卡片暂时无法显示，请查看源码"
+            if (persistenceStarted) throw InteractiveUiPersistenceException(failure)
+            if (event != null) throw failure
+        }
         finally { busy = false }
     }
+    fun enqueue(event: JsonObject? = null) {
+        val id = currentHost.conversationId
+        if (id != null) interactiveUiPendingUpdates.enqueue(id, "${currentHost.message.id}/$key", event) { evaluate(it) }
+        else scope.launch { evaluate(event) }
+    }
     LaunchedEffect(key, complete, host.enabled) {
-        if (complete && host.enabled && result == null) evaluate()
+        if (complete && host.enabled && result == null) enqueue()
     }
     // A state written by another client is restored without executing any action.
-    LaunchedEffect(saved) { if (!busy && saved != state) { state=saved; if (complete && host.enabled) evaluate() } }
-    LaunchedEffect(key) { for (event in events) evaluate(event) }
-    DisposableEffect(key) { onDispose { inputJob?.cancel(); events.close() } }
+    LaunchedEffect(saved) { if (!busy && saved != state) { state=saved; if (complete && host.enabled) enqueue() } }
+    DisposableEffect(key) {
+        onDispose {
+            mounted.set(false)
+            enqueue(buildJsonObject { put("type", "persist") })
+        }
+    }
     fun dispatch(event: JsonObject) {
         if (!host.enabled) return
-        inputJob?.cancel()
-        if (event.text("type") == "change") {
-            pendingInput?.takeIf { it.text("target") != event.text("target") }?.let { events.trySend(it) }
-            pendingInput = event
-            inputJob = scope.launch { delay(150); pendingInput?.let { events.send(it) }; pendingInput = null }
-        } else {
-            pendingInput?.let { events.trySend(it) }; pendingInput = null
-            if (!events.trySend(event).isSuccess) error = "操作过快，请稍后重试"
-        }
+        enqueue(event)
     }
     Surface(shape=MaterialTheme.shapes.largeIncreased,color=MaterialTheme.colorScheme.surfaceContainerLow,
         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),modifier=Modifier.fillMaxWidth()) {
@@ -158,7 +170,7 @@ fun InteractiveUiBlock(source: String, complete: Boolean) {
             if (!complete || !host.enabled && result==null) Text("正在生成交互内容…",style=MaterialTheme.typography.bodySmall)
             error?.let { message ->
                 Text(message,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
-                TextButton(enabled=!busy,onClick={scope.launch{evaluate()}}) { Text("重新显示") }
+                TextButton(enabled=!busy,onClick={enqueue()}) { Text("重新显示") }
             }
             if(showSource || error!=null && result==null) HighlightCodeBlock(source,"openui-lang",Modifier.fillMaxWidth(),completeCodeBlock=complete)
             else result?.get("root")?.let { NativeUiNode(it,host.enabled,::dispatch) }
@@ -203,7 +215,7 @@ internal fun NativeUiNode(node: JsonElement?, enabled: Boolean, dispatch: (JsonO
                 }
             }
         }
-        "Card" -> Surface(shape=MaterialTheme.shapes.large,color=MaterialTheme.colorScheme.surfaceContainerHigh){Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){Text(p.text("title"),style=MaterialTheme.typography.titleSmallEmphasized);renderChildren()}}
+        "Card" -> Surface(shape=MaterialTheme.shapes.large,color=MaterialTheme.colorScheme.surfaceContainerHigh){Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){if(p.text("title").isNotBlank())Text(p.text("title"),style=MaterialTheme.typography.titleSmallEmphasized);renderChildren()}}
         "Carousel" -> NativeUiCarousel(obj.text("id"), p, enabled, dispatch)
         "Popover" -> NativeUiPopover(obj.text("id"), p, enabled, dispatch)
         "Link" -> NativeUiLink(p)
@@ -224,32 +236,13 @@ internal fun NativeUiNode(node: JsonElement?, enabled: Boolean, dispatch: (JsonO
         "Pressable" -> OutlinedCard(enabled=enabled,onClick={dispatch(buildJsonObject{put("type","action");put("target",p.text("action"))})},modifier=Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) { children.forEach{NativeUiNode(it,false,{})} } }
         "Button" -> {
             val click={dispatch(buildJsonObject{put("type","action");put("target",p.text("action"))})}
-            when(p.text("variant")){"text"->TextButton(onClick=click,enabled=enabled){Text(p.text("label"))};"tonal"->FilledTonalButton(onClick=click,enabled=enabled){Text(p.text("label"))};else->Button(onClick=click,enabled=enabled){Text(p.text("label"))}}
+            val active=enabled && p.text("action").isNotBlank() && (p["disabled"] as? JsonPrimitive)?.booleanOrNull!=true
+            when(p.text("variant")){"text","ghost"->TextButton(onClick=click,enabled=active){Text(p.text("label"))};"tonal","soft"->FilledTonalButton(onClick=click,enabled=active){Text(p.text("label"))};"outline"->OutlinedButton(onClick=click,enabled=active){Text(p.text("label"))};else->Button(onClick=click,enabled=active){Text(p.text("label"))}}
         }
         "Input","TextArea","NumberInput" -> NativeInput(obj.text("id"),p,type,enabled,dispatch)
-        "Slider" -> {
-            val min=p.number("min").toFloat();val max=p.number("max",100.0).toFloat().coerceAtLeast(min+0.001f)
-            val actual=p.number("value",min.toDouble()).toFloat().coerceIn(min,max)
-            var value by remember(actual){mutableFloatStateOf(actual)}
-            Column(Modifier.fillMaxWidth()){Text("${p.text("label")}  ${"%.2f".format(value)}",style=MaterialTheme.typography.labelLarge)
-                if (eink) Row(horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-                    TextButton(enabled=enabled && value>min,onClick={value=(value-p.number("step",1.0).coerceAtLeast(.01).toFloat()).coerceIn(min,max);dispatch(change(p.text("valueBinding"),JsonPrimitive(value)))}) { Text("−") }
-                    TextButton(enabled=enabled && value<max,onClick={value=(value+p.number("step",1.0).coerceAtLeast(.01).toFloat()).coerceIn(min,max);dispatch(change(p.text("valueBinding"),JsonPrimitive(value)))}) { Text("＋") }
-                } else Slider(value=value,onValueChange={value=it},valueRange=min..max,enabled=enabled,
-                    steps=if(p.number("step")>0)((max-min)/p.number("step")).toInt().minus(1).coerceIn(0,1000) else 0,
-                    onValueChangeFinished={dispatch(change(p.text("valueBinding"),JsonPrimitive(value)))})}
-        }
-        "Checkbox","Switch" -> Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-            val checked=(p["value"] as? JsonPrimitive)?.booleanOrNull==true
-            if(eink) TextButton(enabled=enabled,onClick={dispatch(change(p.text("valueBinding"),JsonPrimitive(!checked)))}) { Text(if(checked) "☑" else "□") }
-            else if(type=="Checkbox") Checkbox(checked,{dispatch(change(p.text("valueBinding"),JsonPrimitive(it)))},enabled=enabled)
-            else Switch(checked,{dispatch(change(p.text("valueBinding"),JsonPrimitive(it)))},enabled=enabled)
-            Text(p.text("label"),Modifier.padding(start=8.dp).weight(1f))
-        }
-        "Select","RadioGroup","SegmentedControl" -> Column(verticalArrangement=Arrangement.spacedBy(4.dp)){
-            if(p.text("label").isNotBlank())Text(p.text("label"),style=MaterialTheme.typography.labelLarge)
-            FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)){p.list("options").take(40).forEach{item->val value=(item as? JsonPrimitive)?.contentOrNull.orEmpty();if(eink) TextButton(enabled=enabled,onClick={dispatch(change(p.text("valueBinding"),JsonPrimitive(value)))}) { Text((if(p.text("value")==value) "● " else "○ ")+value) } else FilterChip(selected=p.text("value")==value,onClick={dispatch(change(p.text("valueBinding"),JsonPrimitive(value)))},label={Text(value)},enabled=enabled)}}
-        }
+        "Slider" -> NativeUiSlider(obj.text("id"), p, enabled, dispatch)
+        "Checkbox", "Switch" -> NativeUiBoolean(type, p, enabled, dispatch)
+        "Select", "RadioGroup", "SegmentedControl" -> NativeUiChoice(type, p, enabled, dispatch)
         "DatePicker" -> {
             val context=LocalContext.current
             val date=runCatching{LocalDate.parse(p.text("value"))}.getOrDefault(LocalDate.now())
@@ -289,7 +282,7 @@ private fun NativeInput(id:String,p:JsonObject,type:String,enabled:Boolean,dispa
     var text by remember(id){mutableStateOf(value)}
     var focused by remember(id){mutableStateOf(false)}
     LaunchedEffect(value, focused) { if (!focused) text = value }
-    val numeric=type=="NumberInput"
+    val numeric=type=="NumberInput" || p.text("inputType")=="number"
     val update:(String)->Unit={next->if(enabled) { text=next;val parsed=if(numeric)next.toDoubleOrNull()?.takeIf{it.isFinite()}?.let(::JsonPrimitive) else JsonPrimitive(next);if(parsed!=null)dispatch(change(p.text("valueBinding"),parsed)) }}
     val keyboard=KeyboardOptions(keyboardType=if(numeric)KeyboardType.Decimal else KeyboardType.Text)
     if(LocalSettings.current.displaySetting.disableCursorBlink) {

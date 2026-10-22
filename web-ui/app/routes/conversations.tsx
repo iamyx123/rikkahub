@@ -54,6 +54,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { v4 as uuidv4 } from "uuid";
 import i18n from "~/i18n";
+import { activeInteractiveUiCards, submitAfterInteractiveUiSave } from "~/components/intelligent-ui/pending-updates";
 
 type ConversationStreamEvent =
   | ConversationSnapshotEventDto
@@ -418,6 +419,7 @@ function useConversationDetail(activeId: string | null, updateSummary: Conversat
 
 function useDraftInputController({
   activeId,
+  conversation,
   isHomeRoute,
   homeDraftId,
   setHomeDraftId,
@@ -426,6 +428,7 @@ function useDraftInputController({
   refreshList,
 }: {
   activeId: string | null;
+  conversation: ConversationDto | null;
   isHomeRoute: boolean;
   homeDraftId: string;
   folderId: string | null;
@@ -433,6 +436,8 @@ function useDraftInputController({
   navigate: ReturnType<typeof useNavigate>;
   refreshList: () => void;
 }) {
+  const latestConversation = React.useRef(conversation);
+  latestConversation.current = conversation;
   const draftKey = activeId ?? (isHomeRoute ? homeDraftId : null);
   const draft = useChatInputStore(
     React.useCallback((state) => (draftKey ? state.drafts[draftKey] : undefined), [draftKey]),
@@ -479,20 +484,24 @@ function useDraftInputController({
     if (parts.length === 0) return;
 
     if (activeId) {
-      await api.post<{ status: string }>(`conversations/${activeId}/messages`, { parts });
-      clearDraft(draftKey);
+      await submitAfterInteractiveUiSave(activeId, () => {
+        const current = latestConversation.current;
+        return current?.id === activeId ? activeInteractiveUiCards(current.messages) : undefined;
+      }, async () => {
+        await api.post<{ status: string }>(`conversations/${activeId}/messages`, { parts });
+        clearDraft(draftKey);
+      });
       return;
     }
 
     const conversationId = uuidv4();
-    setHomeDraftId(createHomeDraftId());
-
     await api.post<{ status: string }>(`conversations/${conversationId}/messages`, {
       parts,
       folderId,
       enableInteractiveUi: draftInteractiveUi[draftKey] ?? false,
     });
     clearDraft(draftKey);
+    setHomeDraftId(createHomeDraftId());
 
     navigate(`/c/${conversationId}`);
     refreshList();
@@ -766,6 +775,7 @@ function ConversationsPageInner() {
     getCurrentSubmitParts,
   } = useDraftInputController({
     activeId,
+    conversation: detail,
     isHomeRoute,
     homeDraftId,
     setHomeDraftId,

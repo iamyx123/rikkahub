@@ -24,6 +24,7 @@ data class ConversationConfig(
     val enableWebSearch: Boolean = false,
     val builtInSearch: Boolean = false, // 模型内置搜索，覆盖模型自身的开关
     val mcpServers: Set<Uuid> = emptySet(),
+    val enableClassRecord: Boolean = false,
     val workspaceId: Uuid? = null,
     val enabledSkills: Set<String> = emptySet(),
     val enableInteractiveUi: Boolean = false,
@@ -35,6 +36,7 @@ private fun Assistant.toConversationConfig() = ConversationConfig(
     reasoningLevel = reasoningLevel,
     enableWebSearch = enableWebSearch,
     mcpServers = mcpServers,
+    enableClassRecord = enableClassRecord,
     workspaceId = workspaceId,
     enabledSkills = enabledSkills,
 )
@@ -44,6 +46,7 @@ private fun Assistant.withConversationConfig(config: ConversationConfig) = copy(
     reasoningLevel = config.reasoningLevel,
     enableWebSearch = config.enableWebSearch,
     mcpServers = config.mcpServers,
+    enableClassRecord = config.enableClassRecord,
     workspaceId = config.workspaceId,
     enabledSkills = config.enabledSkills,
 )

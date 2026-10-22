@@ -63,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -98,10 +99,16 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.lastContextTokens
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.files.FilesManager
+import kotlinx.coroutines.CancellationException
 import me.rerere.rikkahub.ui.components.ui.ExtensionSelector
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.hooks.ChatInputState
+import me.rerere.rikkahub.ui.components.classrecord.ClassRecordPage
+import me.rerere.ai.ui.UIMessagePart
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import me.rerere.rikkahub.utils.formatNumber
 import me.rerere.workspace.WorkspaceShellStatus
 import org.koin.compose.koinInject
@@ -109,6 +116,7 @@ import org.koin.compose.koinInject
 private enum class FilesPickerPage {
     MAIN,
     MCP,
+    CLASS_RECORD,
     EXTENSIONS,
 }
 
@@ -120,7 +128,7 @@ internal fun FilesPicker(
     chatModel: Model?,
     state: ChatInputState,
     mcpManager: McpManager,
-    onCompressContext: (additionalPrompt: String) -> Job,
+    onCompressContext: (additionalPrompt: String, keepRecentMessages: Int) -> Job,
     onUpdateAssistant: (Assistant) -> Unit,
     onUpdateWorkspaceCwd: (String?) -> Unit,
     showCompressDialog: Boolean,
@@ -147,6 +155,10 @@ internal fun FilesPicker(
     val provider = chatModel?.findProvider(providers = settings.providers)
     val navController = LocalNavController.current
     val workspaceRepository: WorkspaceRepository = koinInject()
+    val classRecordFilesManager: FilesManager = koinInject()
+    val attachmentContext = LocalContext.current
+    val attachmentScope = rememberCoroutineScope()
+    val attachmentToaster = LocalToaster.current
     val workspaces by workspaceRepository.listFlow().collectAsState(initial = emptyList())
 
     val boundWorkspace = remember(workspaces, assistant.workspaceId) {
@@ -182,6 +194,42 @@ internal fun FilesPicker(
                 mcpManager = mcpManager,
                 onUpdateAssistant = onUpdateAssistant,
                 onBack = { page = FilesPickerPage.MAIN },
+            )
+
+            FilesPickerPage.CLASS_RECORD -> ClassRecordPage(
+                assistant = assistant,
+                onUpdateAssistant = onUpdateAssistant,
+                onBack = { page = FilesPickerPage.MAIN },
+                onAttachText = { text ->
+                    state.appendText("\n\n$text\n\n")
+                    state.requestInputFocus()
+                    onDismiss()
+                },
+                onAttachFile = { file ->
+                    attachmentScope.launch {
+                        try {
+                            val uri = android.net.Uri.parse((file["local_uri"] as? JsonPrimitive)?.contentOrNull.orEmpty())
+                            require(uri.scheme == "file") { "请先下载文件到本机，再加入聊天。" }
+                            val localFile = java.io.File(requireNotNull(uri.path)).canonicalFile
+                            val uploadDirectory = java.io.File(attachmentContext.filesDir, "upload").canonicalFile
+                            require(localFile.parentFile == uploadDirectory && localFile.isFile) { "只能附加已经下载到本机的课堂文件。" }
+                            val managed = classRecordFilesManager.getByRelativePath("upload/${localFile.name}")
+                                ?: error("文件没有登记为聊天附件，请重新下载。")
+                            val mime = managed.mimeType
+                            when {
+                                mime.startsWith("image/") -> state.addImages(listOf(uri))
+                                mime.startsWith("audio/") -> state.addAudios(listOf(uri))
+                                mime.startsWith("video/") -> state.addVideos(listOf(uri))
+                                else -> state.addFiles(listOf(UIMessagePart.Document(uri.toString(), managed.displayName, mime)))
+                            }
+                            state.requestInputFocus()
+                            onDismiss()
+                        } catch (error: Exception) {
+                            if (error is CancellationException) throw error
+                            attachmentToaster.show(error.message ?: "无法加入聊天", type = ToastType.Error)
+                        }
+                    }
+                },
             )
 
             FilesPickerPage.EXTENSIONS -> ExtensionPickerPage(
@@ -232,7 +280,7 @@ internal fun FilesPicker(
                 val showMcp = settings.mcpServers.isNotEmpty()
                 // 限制了上下文消息数就是滚动上下文，旧消息会自动移出，不需要压缩
                 val showCompress = assistant.contextMessageLimit <= 0
-                val itemCount = 1 + listOf(showWorkspace, showWorkspace && showCwd, showMcp, showCompress).count { it }
+                val itemCount = 2 + listOf(showWorkspace, showWorkspace && showCwd, showMcp, showCompress).count { it }
                 var itemIndex = 0
                 Column(
                     verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
@@ -273,7 +321,7 @@ internal fun FilesPicker(
                                 },
                             ) {
                                 Text(
-                                    text = conversation.workspaceCwd ?: "/workspace",
+                                    text = conversation.workspaceCwd ?: boundWorkspace?.workspaceDir().orEmpty(),
                                     // 路径的末尾更有辨识度，放不下时省略开头
                                     maxLines = 1,
                                     overflow = TextOverflow.StartEllipsis,
@@ -290,6 +338,17 @@ internal fun FilesPicker(
                             shapes = ListItemDefaults.segmentedShapes(index = itemIndex++, count = itemCount),
                             onClick = { page = FilesPickerPage.MCP },
                         )
+                    }
+
+                    SegmentedListItem(
+                        onClick = { page = FilesPickerPage.CLASS_RECORD },
+                        shapes = ListItemDefaults.segmentedShapes(index = itemIndex++, count = itemCount),
+                        leadingContent = { Icon(HugeIcons.BookEdit, contentDescription = null) },
+                        trailingContent = {
+                            Text(if (assistant.enableClassRecord) "AI 已启用" else "登录与控制面板", style = MaterialTheme.typography.labelSmall)
+                        },
+                    ) {
+                        Text("Class Record")
                     }
 
                     // Extensions (Quick Messages + Prompt Injections + Skills)
@@ -369,6 +428,7 @@ internal fun FilesPicker(
     if (showCwdSheet && boundWorkspace != null) {
         WorkspaceCwdPickerSheet(
             workspaceId = boundWorkspace.id,
+            workspaceDir = boundWorkspace.workspaceDir(),
             currentCwd = conversation.workspaceCwd,
             onSelectCwd = { newCwd ->
                 onUpdateWorkspaceCwd(newCwd)
@@ -428,7 +488,7 @@ private fun WorkspacePickerListItem(
                             contentDescription = stringResource(R.string.workspace_detail),
                         )
                     }
-                    if (boundWorkspace.shellStatus != WorkspaceShellStatus.DISABLED.name) {
+                    if (boundWorkspace.supportsTerminal()) {
                         IconButton(onClick = { onNavigateToTerminal(boundWorkspace.id) }) {
                             Icon(
                                 imageVector = HugeIcons.ComputerTerminal01,

@@ -53,9 +53,12 @@ class SettingsFieldsTest {
 
         assertEquals(STORED_KEYS, stored.keys)
         assertEquals(false, stored["dynamic_color"])
+        assertEquals(true, stored["reading_power_enabled"])
+        assertEquals(45, stored["reading_power_delay_seconds"])
         assertEquals(9090, stored["web_server_port"])
         assertEquals(1.5f, stored["default_tts_playback_speed"])
         assertEquals("title", stored["title_prompt"])
+        assertEquals("interactive", stored["interactive_ui_prompt"])
         assertEquals("00000000-0000-0000-0000-000000000001", stored["chat_model"])
         assertEquals("LOW", stored["fast_model_reasoning_level"])
         assertEquals("""[{"id":"00000000-0000-0000-0000-000000000007","name":"tag"}]""", stored["assistant_tags"])
@@ -74,7 +77,10 @@ class SettingsFieldsTest {
         assertEquals(DEFAULT_SYSTEM_TTS_ID, settings.selectedTTSProviderId)
         assertEquals(null, settings.selectedASRProviderId)
         assertEquals(true, settings.dynamicColor)
+        assertEquals(false, settings.readingPowerEnabled)
+        assertEquals(30, settings.readingPowerDelaySeconds)
         assertEquals(8080, settings.webServerPort)
+        assertEquals(null, settings.interactiveUiPrompt)
     }
 
     @Test
@@ -115,6 +121,8 @@ private val SAMPLE = Settings(
     themeId = "custom",
     customThemes = listOf(CustomTheme(id = "theme", name = "Theme")),
     developerMode = true,
+    readingPowerEnabled = true,
+    readingPowerDelaySeconds = 45,
     displaySetting = DisplaySetting(userNickname = "me"),
     networkSetting = NetworkSetting(userAgent = "agent"),
     favoriteModels = listOf(id(30)),
@@ -130,6 +138,7 @@ private val SAMPLE = Settings(
     translateTargetLanguage = "ja",
     enableSuggestion = false,
     suggestionPrompt = "suggestion",
+    interactiveUiPrompt = "interactive",
     ocrModelId = id(5),
     ocrPrompt = "ocr",
     assistantId = id(20),
@@ -171,6 +180,8 @@ private val STORED_KEYS = setOf(
     "display_setting",
     "network_setting",
     "developer_mode",
+    "reading_power_enabled",
+    "reading_power_delay_seconds",
     "favorite_models",
     "chat_model",
     "fast_model",
@@ -184,6 +195,7 @@ private val STORED_KEYS = setOf(
     "translate_thinking_budget",
     "translate_target_language",
     "suggestion_prompt",
+    "interactive_ui_prompt",
     "ocr_model",
     "ocr_prompt",
     "providers",

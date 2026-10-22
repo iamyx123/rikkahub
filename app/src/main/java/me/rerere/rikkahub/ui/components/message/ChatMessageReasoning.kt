@@ -132,7 +132,11 @@ private fun ReasoningContent(
 ) {
     val eink = LocalSettings.current.displaySetting.disableCursorBlink
     val isPreview = expandState == ReasoningCardState.Preview
-    val reasoningTextStyle = MaterialTheme.typography.bodySmall.copy(
+    val fontSizeRatio = LocalSettings.current.displaySetting.fontSizeRatio
+    val bodySmall = MaterialTheme.typography.bodySmall
+    val reasoningTextStyle = bodySmall.copy(
+        fontSize = bodySmall.fontSize * fontSizeRatio,
+        lineHeight = bodySmall.lineHeight * fontSizeRatio,
         fontFamily = LocalTextStyle.current.fontFamily,
     )
     Column(

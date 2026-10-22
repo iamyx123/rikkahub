@@ -38,6 +38,7 @@ import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV1Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV2Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV3Migration
 import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV4Migration
+import me.rerere.rikkahub.data.datastore.migration.PreferenceStoreV5Migration
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.utils.JsonInstant
 import java.io.File
@@ -78,6 +79,7 @@ private fun createSettingsDataStore(context: Context): DataStore<Preferences> {
             PreferenceStoreV2Migration(),
             PreferenceStoreV3Migration(),
             PreferenceStoreV4Migration(),
+            PreferenceStoreV5Migration(),
         ),
         produceFile = { file },
     )
@@ -106,6 +108,8 @@ class SettingsStore internal constructor(
         val DISPLAY_SETTING = stringPreferencesKey("display_setting")
         val NETWORK_SETTING = stringPreferencesKey("network_setting")
         val DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
+        val READING_POWER_ENABLED = booleanPreferencesKey("reading_power_enabled")
+        val READING_POWER_DELAY_SECONDS = intPreferencesKey("reading_power_delay_seconds")
 
         // 阅读书签：按会话 id 分组持久化（不放进 Settings 大对象，避免每次加书签触发全局重组）
         val CONVERSATION_BOOKMARKS = stringPreferencesKey("conversation_bookmarks")
@@ -124,6 +128,7 @@ class SettingsStore internal constructor(
         val TRANSLATE_THINKING_BUDGET = intPreferencesKey("translate_thinking_budget")
         val TRANSLATE_TARGET_LANGUAGE = stringPreferencesKey("translate_target_language")
         val SUGGESTION_PROMPT = stringPreferencesKey("suggestion_prompt")
+        val INTERACTIVE_UI_PROMPT = stringPreferencesKey("interactive_ui_prompt")
         val OCR_MODEL = stringPreferencesKey("ocr_model")
         val OCR_PROMPT = stringPreferencesKey("ocr_prompt")
 

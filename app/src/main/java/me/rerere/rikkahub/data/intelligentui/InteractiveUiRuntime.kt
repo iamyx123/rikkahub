@@ -27,8 +27,11 @@ object InteractiveUiRuntime {
 
     @Volatile private var cachedPrompt: String? = null
 
-    fun prompt(context: Context): String = cachedPrompt ?: context.assets
-        .open("intelligent-ui/prompt.txt").bufferedReader().use { it.readText() }.also { cachedPrompt = it }
+    fun prompt(context: Context, customPrompt: String? = null): String {
+        val bundled = cachedPrompt ?: context.assets.open("intelligent-ui/prompt.txt")
+            .bufferedReader().use { it.readText() }.also { cachedPrompt = it }
+        return interactiveUiPrompt(bundled, customPrompt)
+    }
 
     suspend fun render(context: Context, source: String, state: JsonObject, event: JsonObject? = null): JsonObject =
         withContext(Dispatchers.Default) {

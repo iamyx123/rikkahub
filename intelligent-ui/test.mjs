@@ -71,3 +71,61 @@ test('every bundled icon uses native vector primitives and matches web assets',a
     assert.ok(icon.children.every(n=>['Path','Rect','Circle','Ellipse','Line','Polyline','Polygon'].includes(n.type)));
   }
 });
+
+function findNode(result,type,predicate=()=>true) {
+  const found=[];
+  function walk(value){if(!value||typeof value!=='object')return;if(value.type===type&&value.props&&predicate(value))found.push(value);Object.values(value).forEach(walk);}
+  walk(result.root);return found[0];
+}
+
+test('real parameter program changes derived curve while dragging and restores committed values',async()=>{
+  const source=await readFile(new URL('./examples/parameter-exploration.oui',import.meta.url),'utf8');
+  let result=render(source);assert.deepEqual(result.errors,[]);
+  const slider=findNode(result,'Slider',node=>node.props.label==='系数 a');
+  const original=findNode(result,'Chart').props;
+  result=render(source,result.state,{type:'change',target:slider.props.valueBinding,value:2,transient:true});
+  const changed=findNode(result,'Chart').props;
+  assert.deepEqual(result.errors,[]);
+  assert.equal(result.state.$a,2);
+  assert.deepEqual([changed.yMin,changed.yMax],[-16,16]);
+  const first=original.data.find(row=>row.x===1),second=changed.data.find(row=>row.x===1);
+  assert.equal(first.y,1);assert.equal(second.y,2);
+  assert.notEqual((first.y-original.yMin)/(original.yMax-original.yMin),(second.y-changed.yMin)/(changed.yMax-changed.yMin));
+  result=render(source,result.state,{type:'change',target:slider.props.valueBinding,value:-2,commit:true});
+  const persisted=JSON.parse(JSON.stringify(result.state));
+  const reopened=render(source,persisted);
+  assert.equal(findNode(reopened,'Slider',node=>node.props.label==='系数 a').props.value,-2);
+  assert.equal(findNode(reopened,'Chart').props.data.find(row=>row.x===1).y,-2);
+});
+
+test('canonical upstream select options forms reset carousel popover and collapsible all remain interactive',async()=>{
+  const source=await readFile(new URL('./examples/parameter-exploration.oui',import.meta.url),'utf8');
+  let result=render(source);
+  const select=findNode(result,'Select');assert.equal(select.props.options[1].label,'直线');
+  result=render(source,result.state,{type:'change',target:select.props.valueBinding,value:'linear'});
+  const chart=findNode(result,'Chart');assert.equal(chart.props.data.find(row=>row.x===-2).y,-2);
+  const input=findNode(result,'Input');
+  result=render(source,result.state,{type:'change',target:input.props.valueBinding,value:'解释开口方向'});
+  const submit=findNode(result,'Button',node=>node.props.label==='解释当前图形');
+  result=render(source,result.state,{type:'action',target:submit.props.action});
+  assert.equal(result.effects[0].text,'请根据当前参数解释图形的变化');
+  assert.ok(!result.effects[0].text.includes('$')&&!result.effects[0].text.includes('{'));
+  assert.equal(result.effects[0].state.$note,'解释开口方向');
+  for(const type of ['Accordion','Carousel','Popover','Flashcard','Form'])assert.ok(findNode(result,type),type);
+  const reset=findNode(result,'Button',node=>node.props.label==='恢复初始');
+  result=render(source,result.state,{type:'action',target:reset.props.action});
+  assert.equal(result.state.$curve,'quadratic');assert.equal(result.state.$a,1);
+});
+
+test('upstream Svg coordinate bindings move geometry and legacy signatures are retained',()=>{
+  const source='$force=8\n$k=40\nextension=$force/$k\nroot=Col([Slider($force,0,20,1,"拉力"),Svg([Line(20,80,20+extension*300,80,"primary",3),Rect(20+extension*300,60,30,40,"surface","ink",2),SvgText("弹簧",20,30,12,"ink")],"0 0 240 160"),Card([Text("原生控件")],"soft"),Card("旧卡片",[Text("兼容")]),Icon("info","sm"),Checkbox($force>0,"只读显示")])';
+  let result=render(source);assert.deepEqual(result.errors,[]);
+  assert.equal(findNode(result,'Line').props.x2,80);
+  const slider=findNode(result,'Slider');
+  result=render(source,result.state,{type:'change',target:slider.props.valueBinding,value:16});
+  assert.equal(findNode(result,'Line').props.x2,140);
+  assert.equal(findNode(result,'Line').props.stroke,'primary');
+  assert.equal(findNode(result,'SvgText').props.text,'弹簧');
+  assert.equal(findNode(result,'Icon').props.size,16);
+  assert.equal(findNode(result,'Card',node=>node.props.title==='旧卡片').props.children[0].props.text,'兼容');
+});

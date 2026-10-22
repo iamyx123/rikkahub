@@ -11,12 +11,12 @@ import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.files.FileFolders
-import me.rerere.rikkahub.data.skills.SkillManager
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.repository.memoryId
+import me.rerere.rikkahub.data.skills.SkillManager
 import me.rerere.workspace.WorkspaceShellStatus
 import java.io.File
 import kotlin.uuid.Uuid
@@ -42,6 +42,7 @@ class ChatToolFactory(
     private val conversationRepository: ConversationRepository,
     private val localTools: LocalTools,
     private val mcpManager: McpManager,
+    private val classRecordRepository: me.rerere.rikkahub.data.classrecord.ClassRecordRepository,
     private val skillManager: SkillManager,
     private val workspaceRepository: WorkspaceRepository,
 ) {
@@ -64,6 +65,9 @@ class ChatToolFactory(
                 addAll(createConversationTools(conversationRepository, assistant.id))
             }
             addAll(workspaceTools)
+            if (assistant.enableClassRecord) {
+                addAll(createClassRecordTools(classRecordRepository, assistant.workspaceId?.toString()))
+            }
             if (assistant.enabledSkills.isNotEmpty()) {
                 addAll(
                     createSkillTools(
@@ -93,8 +97,11 @@ class ChatToolFactory(
                 )
             }
         }
-        // 过长的输出存成文件让模型用 shell 按需读取；没有 shell 时模型读不到文件，只能原样返回
-        return if (workspaceTools.isEmpty()) tools else tools.map(::withOutputTruncation)
+        // 过长的输出存成文件让模型用 shell 按需读取；没有 shell 时模型读不到文件，只能原样返回。
+        // 文件放在本机, 只有本地 Rootfs 挂载了 /tool_outputs, 远程工作区同样读不到
+        val canReadToolOutputs = workspaceTools.isNotEmpty() &&
+            assistant.workspaceId?.let { workspaceRepository.getById(it.toString()) }?.capabilities()?.rootfs == true
+        return if (canReadToolOutputs) tools.map(::withOutputTruncation) else tools
     }
 
     private fun withOutputTruncation(tool: Tool): Tool {

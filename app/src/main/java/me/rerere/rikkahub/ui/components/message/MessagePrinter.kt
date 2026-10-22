@@ -198,7 +198,6 @@ fun rememberMessagePrinter(): (UIMessage) -> Unit {
     return remember(settings) {
         fn@{ message: UIMessage ->
             val cfg = settings.displaySetting.paperangPrinter
-            if (!ensurePrinterReady(printer, toaster)) return@fn
             val activity = context.getActivity() ?: run {
                 toaster.show(message = "无法获取窗口，打印失败", type = ToastType.Error)
                 return@fn
@@ -211,13 +210,21 @@ fun rememberMessagePrinter(): (UIMessage) -> Unit {
             scope.launch {
                 toaster.show("正在渲染并打印…")
                 runCatching {
-                    val bitmap = renderMessageBitmap(scope, activity, density, highlighter, settings, text, cfg.printFontScale, message)
-                    val result = printer.printBitmap(bitmap, grayscale = false, density = cfg.density, feedAfter = cfg.feedAfter)
-                    if (!bitmap.isRecycled) bitmap.recycle()
-                    result.getOrThrow()
-                }.onSuccess {
-                    toaster.dismissAll()
-                    toaster.show(message = "已发送到打印机", type = ToastType.Success)
+                    printer.withWirelessOperation {
+                        if (!ensurePrinterReady(printer, toaster)) return@withWirelessOperation false
+                        val bitmap = renderMessageBitmap(scope, activity, density, highlighter, settings, text, cfg.printFontScale, message)
+                        try {
+                            printer.printBitmap(bitmap, grayscale = false, density = cfg.density, feedAfter = cfg.feedAfter).getOrThrow()
+                        } finally {
+                            if (!bitmap.isRecycled) bitmap.recycle()
+                        }
+                        true
+                    }
+                }.onSuccess { printed ->
+                    if (printed) {
+                        toaster.dismissAll()
+                        toaster.show(message = "已发送到打印机", type = ToastType.Success)
+                    }
                 }.onFailure {
                     toaster.show(message = "打印失败: ${it.message ?: "未知错误"}", type = ToastType.Error)
                 }
@@ -305,7 +312,6 @@ fun MessagePrintPreviewDialog(
                     TextButton(
                         enabled = !printing,
                         onClick = {
-                            if (!ensurePrinterReady(printer, toaster)) return@TextButton
                             val activity = context.getActivity() ?: run {
                                 toaster.show(message = "无法获取窗口，打印失败", type = ToastType.Error)
                                 return@TextButton
@@ -321,14 +327,22 @@ fun MessagePrintPreviewDialog(
                                 toaster.show("正在渲染并打印…")
                                 val cfg = settings.displaySetting.paperangPrinter
                                 runCatching {
-                                    val bitmap = renderMessageBitmap(scope, activity, density, highlighter, settings, text, chosenScale, message)
-                                    val result = printer.printBitmap(bitmap, grayscale = false, density = cfg.density, feedAfter = cfg.feedAfter)
-                                    if (!bitmap.isRecycled) bitmap.recycle()
-                                    result.getOrThrow()
-                                }.onSuccess {
-                                    toaster.dismissAll()
-                                    toaster.show(message = "已发送到打印机", type = ToastType.Success)
-                                    onDismiss()
+                                    printer.withWirelessOperation {
+                                        if (!ensurePrinterReady(printer, toaster)) return@withWirelessOperation false
+                                        val bitmap = renderMessageBitmap(scope, activity, density, highlighter, settings, text, chosenScale, message)
+                                        try {
+                                            printer.printBitmap(bitmap, grayscale = false, density = cfg.density, feedAfter = cfg.feedAfter).getOrThrow()
+                                        } finally {
+                                            if (!bitmap.isRecycled) bitmap.recycle()
+                                        }
+                                        true
+                                    }
+                                }.onSuccess { printed ->
+                                    if (printed) {
+                                        toaster.dismissAll()
+                                        toaster.show(message = "已发送到打印机", type = ToastType.Success)
+                                        onDismiss()
+                                    }
                                 }.onFailure {
                                     toaster.show(message = "打印失败: ${it.message ?: "未知错误"}", type = ToastType.Error)
                                 }
@@ -343,9 +357,10 @@ fun MessagePrintPreviewDialog(
 }
 
 /** 检查打印机是否就绪；未就绪时按蓝牙状态给出正确提示。 */
-private fun ensurePrinterReady(printer: PaperangPrinter, toaster: me.rerere.ui.toast.ToasterState): Boolean {
-    if (printer.status.value.state == PaperangPrinter.ConnState.CONNECTED) return true
-    val msg = if (!printer.isBluetoothOn()) "蓝牙未开启，请先打开蓝牙" else "打印机未连接，请长按「喵喵机错题」连接打印机"
+private suspend fun ensurePrinterReady(printer: PaperangPrinter, toaster: me.rerere.ui.toast.ToasterState): Boolean {
+    // Called inside the print transaction's wireless lease, after airplane mode has been restored.
+    if (printer.ensureRememberedConnection()) return true
+    val msg = printer.status.value.message ?: if (!printer.isBluetoothOn()) "蓝牙未开启，请先打开蓝牙" else "打印机未连接，请长按「喵喵机错题」连接打印机"
     toaster.show(message = msg, type = ToastType.Warning)
     return false
 }

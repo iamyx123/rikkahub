@@ -22,6 +22,7 @@ export interface ConversationConfig {
   /** 模型内置搜索，覆盖模型自身的开关 */
   builtInSearch?: boolean;
   mcpServers?: string[];
+  enableClassRecord?: boolean;
   workspaceId?: string | null;
   enabledSkills?: string[];
 }

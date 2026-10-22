@@ -67,6 +67,8 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         json(DISPLAY_SETTING, Settings::displaySetting) { copy(displaySetting = it) },
         json(NETWORK_SETTING, Settings::networkSetting) { copy(networkSetting = it) },
         plain(DEVELOPER_MODE, Settings::developerMode) { copy(developerMode = it) },
+        plain(READING_POWER_ENABLED, Settings::readingPowerEnabled) { copy(readingPowerEnabled = it) },
+        plain(READING_POWER_DELAY_SECONDS, Settings::readingPowerDelaySeconds) { copy(readingPowerDelaySeconds = it) },
 
         // 模型选择
         json(FAVORITE_MODELS, Settings::favoriteModels) { copy(favoriteModels = it) },
@@ -87,6 +89,12 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         plain(TRANSLATE_THINKING_BUDGET, Settings::translateThinkingBudget) { copy(translateThinkingBudget = it) },
         plain(TRANSLATE_TARGET_LANGUAGE, Settings::translateTargetLanguage) { copy(translateTargetLanguage = it) },
         plain(SUGGESTION_PROMPT, Settings::suggestionPrompt) { copy(suggestionPrompt = it) },
+        SettingsField(
+            INTERACTIVE_UI_PROMPT, Settings::interactiveUiPrompt, { copy(interactiveUiPrompt = it) },
+            // Default instructions are bundled with the app; resetting removes the custom override.
+            encode = { it },
+            decode = { it },
+        ),
         uuid(OCR_MODEL, Settings::ocrModelId) { copy(ocrModelId = it) },
         plain(OCR_PROMPT, Settings::ocrPrompt) { copy(ocrPrompt = it) },
 

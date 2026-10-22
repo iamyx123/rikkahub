@@ -1,7 +1,5 @@
 package me.rerere.rikkahub.data.datastore
 
-import me.rerere.ai.provider.ProviderSetting
-
 /** 读盘后和每次修改后都要过一遍，保证内存里的设置始终是规整的。 */
 internal fun Settings.normalized(): Settings =
     withBuiltInDefaults().withoutInvalidReferences().withValuesInRange()
@@ -54,19 +52,7 @@ internal fun Settings.withoutInvalidReferences(): Settings {
     val asrProviders = settings.asrProviders.distinctBy { it.id }
     return settings.copy(
         providers = settings.providers.distinctBy { it.id }.map { provider ->
-            when (provider) {
-                is ProviderSetting.OpenAI -> provider.copy(
-                    models = provider.models.distinctBy { model -> model.id }
-                )
-
-                is ProviderSetting.Google -> provider.copy(
-                    models = provider.models.distinctBy { model -> model.id }
-                )
-
-                is ProviderSetting.Claude -> provider.copy(
-                    models = provider.models.distinctBy { model -> model.id }
-                )
-            }
+            provider.copyProvider(models = provider.models.distinctBy { model -> model.id })
         },
         assistants = settings.assistants.distinctBy { it.id }.map { assistant ->
             assistant.copy(
@@ -102,6 +88,7 @@ internal fun Settings.withoutInvalidReferences(): Settings {
 
 // 把取值收回合法范围，比如删掉搜索服务后选中的下标可能越界
 private fun Settings.withValuesInRange(): Settings = copy(
+    readingPowerDelaySeconds = readingPowerDelaySeconds.coerceIn(0, 3600),
     searchServiceSelected = searchServiceSelected.coerceIn(0, (searchServices.size - 1).coerceAtLeast(0)),
     defaultTTSPlaybackSpeed = defaultTTSPlaybackSpeed.coerceIn(0.5f, 2.0f),
 )

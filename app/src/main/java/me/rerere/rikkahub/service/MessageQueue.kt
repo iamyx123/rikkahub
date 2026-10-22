@@ -65,6 +65,20 @@ class MessageQueue {
         return next
     }
 
+    /** A preparation failure must not discard input that has not entered conversation history. */
+    @Synchronized
+    internal fun pauseAfterSubmissionFailure(message: QueuedMessage, error: Exception, userMessageCreated: Boolean) {
+        message.reply?.completeExceptionally(error)
+        if (!userMessageCreated && state.value.messages.none { it.id == message.id }) {
+            mutableState.value = state.value.copy(
+                // A voice observer has already received its failure; manual retry is an ordinary send.
+                messages = listOf(message.copy(reply = null, isEditing = false)) + state.value.messages,
+                paused = true,
+            )
+        }
+        pause()
+    }
+
     @Synchronized
     fun remove(id: Uuid): QueuedMessage? {
         val removed = state.value.messages.find { it.id == id } ?: return null

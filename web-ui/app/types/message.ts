@@ -19,6 +19,8 @@ export interface UIMessage {
   interactiveUiStates?: Record<string, Record<string, unknown>>;
   interactiveUiMode?: boolean | null;
   interactiveUiDirective?: string | null;
+  interactiveUiContext?: Record<string, unknown> | null;
+  interactiveUiPromptFingerprint?: string | null;
   id: string;
   role: MessageRole;
   parts: UIMessagePart[];

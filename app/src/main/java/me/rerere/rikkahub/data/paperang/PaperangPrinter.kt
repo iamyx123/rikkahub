@@ -23,6 +23,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -36,6 +37,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.power.ReadingPowerController
 import org.json.JSONObject
 
 /**
@@ -52,6 +54,7 @@ class PaperangPrinter(
     private val context: Context,
     private val appScope: CoroutineScope,
     private val settingsStore: SettingsStore,
+    private val readingPower: ReadingPowerController,
 ) {
     companion object {
         private const val TAG = "PaperangPrinter"
@@ -88,6 +91,7 @@ class PaperangPrinter(
 
     private val notifyChannel = Channel<ByteArray>(Channel.UNLIMITED)
     private val writeMutex = Mutex()
+    private val connectMutex = Mutex()
     private var writeDeferred: CompletableDeferred<Boolean>? = null
     private var connectDeferred: CompletableDeferred<Boolean>? = null
     private var servicesDeferred: CompletableDeferred<Boolean>? = null
@@ -97,6 +101,7 @@ class PaperangPrinter(
     @Volatile private var appInForeground = true
     private var desiredAddress: String? = null
     private var scanning = false
+    private var scanStopped: CompletableDeferred<Unit>? = null
 
     fun isBluetoothOn(): Boolean = adapter?.isEnabled == true
 
@@ -195,6 +200,7 @@ class PaperangPrinter(
         override fun onScanFailed(errorCode: Int) {
             Log.w(TAG, "scan failed: $errorCode")
             scanning = false
+            scanStopped?.complete(Unit)
             if (_status.value.state == ConnState.SCANNING) {
                 _status.value = _status.value.copy(state = ConnState.DISCONNECTED, message = "扫描失败($errorCode)")
             }
@@ -202,6 +208,15 @@ class PaperangPrinter(
     }
 
     suspend fun startScan(timeoutMs: Long = 10_000) {
+        try {
+            readingPower.withNetwork { startScanWithRadios(timeoutMs) }
+        } catch (failure: Exception) {
+            if (failure is CancellationException) throw failure
+            _status.value = _status.value.copy(message = "无法扫描: ${failure.message}")
+        }
+    }
+
+    private suspend fun startScanWithRadios(timeoutMs: Long) {
         val scanner = adapter?.bluetoothLeScanner ?: run {
             _status.value = _status.value.copy(message = "蓝牙不可用")
             return
@@ -209,14 +224,19 @@ class PaperangPrinter(
         if (scanning) return
         _scanResults.value = emptyList()
         scanning = true
+        val stopped = CompletableDeferred<Unit>()
+        scanStopped = stopped
         _status.value = _status.value.copy(state = ConnState.SCANNING, message = null)
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
-        runCatching { scanner.startScan(null, settings, scanCallback) }
-            .onFailure { _status.value = _status.value.copy(message = "无法扫描: ${it.message}") }
-        delay(timeoutMs)
-        stopScan()
+        try {
+            scanner.startScan(null, settings, scanCallback)
+            withTimeoutOrNull(timeoutMs.coerceAtLeast(0)) { stopped.await() }
+        } finally {
+            stopScan()
+            if (scanStopped === stopped) scanStopped = null
+        }
     }
 
     fun stopScan() {
@@ -226,6 +246,7 @@ class PaperangPrinter(
         if (_status.value.state == ConnState.SCANNING) {
             _status.value = _status.value.copy(state = if (gatt != null) ConnState.CONNECTED else ConnState.DISCONNECTED)
         }
+        scanStopped?.complete(Unit)
     }
 
     // ─── 连接 ───
@@ -310,7 +331,16 @@ class PaperangPrinter(
         gatt = null
     }
 
-    suspend fun connect(address: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun connect(address: String): Boolean = try {
+        readingPower.withNetwork { connectMutex.withLock { connectWithRadios(address) } }
+    } catch (failure: Exception) {
+        if (failure is CancellationException) throw failure
+        _status.value = _status.value.copy(state = ConnState.DISCONNECTED, message = "无法连接: ${failure.message}")
+        false
+    }
+
+    private suspend fun connectWithRadios(address: String): Boolean = withContext(Dispatchers.IO) {
+        if (_status.value.state == ConnState.CONNECTED && _status.value.deviceAddress == address && gatt != null && writeChar != null) return@withContext true
         if (!isBluetoothOn()) {
             _status.value = _status.value.copy(state = ConnState.DISCONNECTED, message = "蓝牙未开启，请先打开蓝牙")
             return@withContext false
@@ -465,14 +495,28 @@ class PaperangPrinter(
         return if (override > 0) override else _status.value.paperWidthPx.takeIf { it > 0 } ?: DEFAULT_WIDTH
     }
 
+    /** Hold radios only for a real print transaction, including preparation, never for idle GATT. */
+    suspend fun <T> withWirelessOperation(block: suspend () -> T): T = readingPower.withNetwork(block)
+
+    /** Retry only the same remembered device, respecting the existing auto-reconnect setting. */
+    suspend fun ensureRememberedConnection(): Boolean {
+        if (_status.value.state == ConnState.CONNECTED && gatt != null && writeChar != null) return true
+        val cfg = settingsStore.awaitLoaded().displaySetting.paperangPrinter
+        if (!cfg.autoReconnect || !autoReconnectEnabled) return false
+        val address = (desiredAddress ?: cfg.deviceAddress).takeIf { it.isNotBlank() } ?: return false
+        return connect(address)
+    }
+
     /** 黑白/灰度打印一张位图；返回是否成功。density 1-255。 */
     suspend fun printBitmap(bitmap: android.graphics.Bitmap, grayscale: Boolean, density: Int = 90, feedAfter: Int = 0): Result<Unit> =
         withContext(Dispatchers.IO) {
-            if (gatt == null || writeChar == null) return@withContext Result.failure(IllegalStateException("打印机未连接"))
-            val width = effectivePaperWidth()
             runCatching {
-                if (grayscale) printGray(bitmap, width, density, feedAfter)
-                else printBw(bitmap, width, density, feedAfter)
+                readingPower.withNetwork {
+                    check(ensureRememberedConnection()) { _status.value.message ?: "打印机未连接" }
+                    val width = effectivePaperWidth()
+                    if (grayscale) printGray(bitmap, width, density, feedAfter)
+                    else printBw(bitmap, width, density, feedAfter)
+                }
             }
         }
 
@@ -546,7 +590,9 @@ class PaperangPrinter(
     }
 
     suspend fun feed(lines: Int) {
-        sendCommand(PaperangProtocol.PARENT_THERMALPRINTER, PaperangProtocol.TP_SET_MOVE_PAPER, PaperangProtocol.u16(lines))
+        readingPower.withNetwork {
+            sendCommand(PaperangProtocol.PARENT_THERMALPRINTER, PaperangProtocol.TP_SET_MOVE_PAPER, PaperangProtocol.u16(lines))
+        }
     }
 
     /** 刷新纸张信息（只读设置里的手动值，不向打印机发命令、不会走纸）。 */
@@ -557,7 +603,9 @@ class PaperangPrinter(
     }
 
     suspend fun selfTest() {
-        sendCommand(PaperangProtocol.PARENT_THERMALPRINTER, PaperangProtocol.TP_SELF_TEST)
+        readingPower.withNetwork {
+            sendCommand(PaperangProtocol.PARENT_THERMALPRINTER, PaperangProtocol.TP_SELF_TEST)
+        }
     }
 }
 

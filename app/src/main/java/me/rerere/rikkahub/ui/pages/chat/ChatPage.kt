@@ -55,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
@@ -65,6 +66,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -84,6 +87,7 @@ import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.core.MessageRole
 import me.rerere.common.android.appTempFolder
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Cancel01
@@ -93,6 +97,11 @@ import me.rerere.hugeicons.stroke.MessageAdd01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.ScreenshotServerConfig
 import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.power.ReadingPowerController
+import me.rerere.rikkahub.ui.components.ReadingPowerButton
+import me.rerere.rikkahub.ui.context.LocalTTSState
+import me.rerere.rikkahub.ui.context.LocalASRState
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getSelectedASRProvider
 import me.rerere.rikkahub.data.files.FilesManager
@@ -154,6 +163,24 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     val currentChatModel by vm.currentChatModel.collectAsStateWithLifecycle()
     val assistant by vm.assistant.collectAsStateWithLifecycle()
     val errors by vm.errors.collectAsStateWithLifecycle()
+
+    val readingPower = koinInject<ReadingPowerController>()
+    val pageLifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
+    val voiceForPower by vm.voiceSession.state.collectAsStateWithLifecycle()
+    val dictationForPower by LocalASRState.current.state.collectAsStateWithLifecycle()
+    val speakingForPower by LocalTTSState.current.isSpeaking.collectAsStateWithLifecycle()
+    val readingWindowFocused = LocalWindowInfo.current.isWindowFocused
+    val latestAnswer = conversation.currentMessages.lastOrNull()?.takeIf { it.role == MessageRole.ASSISTANT }
+    val readingToken = "${conversation.id}/${latestAnswer?.id ?: "none"}"
+    val canReadAnswer = latestAnswer != null && latestAnswer.parts.isNotEmpty() &&
+        latestAnswer.parts.none { it is UIMessagePart.Tool && it.isPending } &&
+        pageLifecycle.isAtLeast(Lifecycle.State.RESUMED) && readingWindowFocused
+    LaunchedEffect(readingToken, canReadAnswer, loadingJob, voiceForPower.isActive, dictationForPower.isRecording, speakingForPower) {
+        readingPower.setReading(readingToken, canReadAnswer, loadingJob != null || voiceForPower.isActive || dictationForPower.isRecording || speakingForPower)
+    }
+    DisposableEffect(readingPower, readingToken) {
+        onDispose { readingPower.clearReading(readingToken) }
+    }
 
     // 新会话发出第一条消息前，跟随抽屉当前选中的文件夹（#2133）
     val drawerVm: ChatDrawerVM = koinViewModel(viewModelStoreOwner = LocalActivity.current as ComponentActivity)
@@ -1026,6 +1053,9 @@ private fun TopBar(
     onUpdateTitle: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val readingPower = koinInject<ReadingPowerController>()
+    val readingState by readingPower.state.collectAsStateWithLifecycle()
+    val settingsStore = koinInject<SettingsStore>()
     val toaster = LocalToaster.current
     val titleState = useEditState<String> {
         onUpdateTitle(it)
@@ -1079,6 +1109,21 @@ private fun TopBar(
             }
         },
         actions = {
+            ReadingPowerButton(
+                enabled = settings.readingPowerEnabled,
+                delaySeconds = settings.readingPowerDelaySeconds,
+                state = readingState,
+                onEnabledChange = { enabled ->
+                    if (enabled) readingPower.requireAccess()
+                    settingsStore.update { it.copy(readingPowerEnabled = enabled) }
+                    readingPower.configure(enabled, settingsStore.settingsFlow.value.readingPowerDelaySeconds)
+                    if (!enabled) readingPower.beforeNetwork()
+                },
+                onDelaySecondsChange = { seconds ->
+                    settingsStore.update { it.copy(readingPowerDelaySeconds = seconds) }
+                    readingPower.configure(settingsStore.settingsFlow.value.readingPowerEnabled, seconds)
+                },
+            )
             // 新建对话旁的按钮：单击切换预览，长按通过 Root 静默开启学习桌面
             Box(
                 modifier = Modifier

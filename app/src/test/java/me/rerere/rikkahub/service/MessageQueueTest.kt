@@ -2,15 +2,85 @@ package me.rerere.rikkahub.service
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.buildJsonObject
+import me.rerere.rikkahub.data.intelligentui.InteractiveUiPendingUpdates
 import me.rerere.ai.ui.UIMessagePart
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.uuid.Uuid
 
 class MessageQueueTest {
     private fun text(value: String) = listOf(UIMessagePart.Text(value))
+
+    @Test
+    fun `failed interactive state save retains dispatched text and attachments until explicit resume`() = runBlocking {
+        val queue = MessageQueue()
+        val updates = InteractiveUiPendingUpdates(this)
+        val conversationId = Uuid.random()
+        val parts = text("解释当前曲线") + UIMessagePart.Image("file:///upload/example.png")
+        queue.enqueue(parts, answer = false)
+        queue.enqueue(text("later"))
+        val dispatched = queue.takeNext()!!
+        updates.enqueue(conversationId, "card", buildJsonObject {}) { throw IllegalStateException("disk failed") }
+        val failure = runCatching { updates.awaitIdle(conversationId) }.exceptionOrNull() as Exception
+        queue.pauseAfterSubmissionFailure(dispatched, failure, userMessageCreated = false)
+
+        assertTrue(queue.state.value.paused)
+        assertNull(queue.takeNext())
+        assertEquals(parts, queue.state.value.messages.first().parts)
+        assertEquals(emptySet<String>(), unreferencedQueuedAttachmentUrls(dispatched, emptyList(), queue.state.value.messages))
+        // Failure notification or retry must never duplicate the same pending item.
+        queue.pauseAfterSubmissionFailure(dispatched, failure, userMessageCreated = false)
+        assertEquals(2, queue.state.value.messages.size)
+        queue.resume()
+        val retry = queue.takeNext()!!
+        assertEquals(dispatched.id, retry.id)
+        assertEquals(parts, retry.parts)
+        assertFalse(retry.answer)
+        assertEquals(text("later"), queue.takeNext()!!.parts)
+        assertNull(queue.takeNext())
+    }
+
+    @Test
+    fun `failed preparation resolves voice observers and manual retry detaches completed playback`() = runBlocking {
+        val queue = MessageQueue()
+        val reply = CompletableDeferred<String?>()
+        val laterReply = CompletableDeferred<String?>()
+        queue.enqueue(text("voice"), reply = reply)
+        queue.enqueue(text("later voice"), reply = laterReply)
+        val dispatched = queue.takeNext()!!
+        val failure = IllegalStateException("state not saved")
+
+        queue.pauseAfterSubmissionFailure(dispatched, failure, userMessageCreated = false)
+
+        assertTrue(reply.isCompleted)
+        val observedFailure = runCatching { reply.await() }.exceptionOrNull()
+        assertTrue(observedFailure is IllegalStateException)
+        assertEquals(failure.message, observedFailure?.message)
+        assertTrue(laterReply.isCompleted)
+        assertNull(queue.takeNext())
+        queue.resume()
+        assertNull(queue.takeNext()!!.reply)
+    }
+
+    @Test
+    fun `failure after user message creation pauses remaining input without queuing a duplicate user turn`() {
+        val queue = MessageQueue()
+        queue.enqueue(text("already in history"))
+        queue.enqueue(text("later"))
+        val dispatched = queue.takeNext()!!
+
+        queue.pauseAfterSubmissionFailure(dispatched, IllegalStateException("generation failed"), userMessageCreated = true)
+
+        assertTrue(queue.state.value.paused)
+        assertEquals(listOf(text("later")), queue.state.value.messages.map { it.parts })
+        queue.resume()
+        assertEquals(text("later"), queue.takeNext()!!.parts)
+        assertNull(queue.takeNext())
+    }
 
     @Test
     fun `editing a voice message preserves its reply observer and queue position`() {

@@ -358,11 +358,10 @@ fun ChatInput(
                                 model = chatModel,
                             )
 
-                            androidx.compose.material3.FilterChip(
-                                selected = interactiveUiEnabled,
-                                onClick = { onInteractiveUiEnabledChange(!interactiveUiEnabled) },
-                                enabled = !loading,
-                                label = { Text(if (interactiveUiEnabled) "交互 UI · 开" else "交互 UI") },
+                            me.rerere.rikkahub.ui.components.intelligentui.InteractiveUiButton(
+                                enabled = interactiveUiEnabled,
+                                loading = loading,
+                                onEnabledChange = onInteractiveUiEnabledChange,
                             )
 
                             // Reasoning
