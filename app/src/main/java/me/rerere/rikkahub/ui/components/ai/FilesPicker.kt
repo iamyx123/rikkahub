@@ -345,7 +345,7 @@ internal fun FilesPicker(
                         shapes = ListItemDefaults.segmentedShapes(index = itemIndex++, count = itemCount),
                         leadingContent = { Icon(HugeIcons.BookEdit, contentDescription = null) },
                         trailingContent = {
-                            Text(if (assistant.enableClassRecord) "AI 已启用" else "登录与控制面板", style = MaterialTheme.typography.labelSmall)
+                            Text(if (assistant.enableClassRecord) "已启用" else "未启用", style = MaterialTheme.typography.labelMedium)
                         },
                     ) {
                         Text("Class Record")
