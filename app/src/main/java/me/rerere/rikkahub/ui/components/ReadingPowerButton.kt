@@ -180,7 +180,7 @@ fun ReadingPowerButton(
                     if (state.phase == ReadingPowerPhase.COUNTDOWN && state.deadlineElapsedMs != null) {
                         ReadingPowerCountdown(state.deadlineElapsedMs)
                     }
-                    Text("回答完成后等待指定秒数，再自动切换飞行模式；发送消息和下载资料时会恢复联网。退到后台或关闭功能时恢复此前状态。", style = MaterialTheme.typography.bodyMedium)
+                    Text("回答完成后等待指定秒数，再自动切换飞行模式；发送消息和下载资料时会恢复联网。下拉状态栏或临时弹窗不会切换飞行模式。离开聊天页面、退到后台或关闭功能时恢复此前状态。", style = MaterialTheme.typography.bodyMedium)
                     OutlinedTextField(
                         value = seconds,
                         onValueChange = { seconds = it; invalid = false; actionError = null },

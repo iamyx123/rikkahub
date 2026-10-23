@@ -57,7 +57,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
@@ -103,6 +102,7 @@ import me.rerere.rikkahub.data.datastore.ScreenshotServerConfig
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.power.ReadingPowerController
+import me.rerere.rikkahub.data.power.readingPowerPageVisible
 import me.rerere.rikkahub.ui.components.ReadingPowerButton
 import me.rerere.rikkahub.ui.context.LocalTTSState
 import me.rerere.rikkahub.ui.context.LocalASRState
@@ -176,12 +176,11 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     val voiceForPower by vm.voiceSession.state.collectAsStateWithLifecycle()
     val dictationForPower by LocalASRState.current.state.collectAsStateWithLifecycle()
     val speakingForPower by LocalTTSState.current.isSpeaking.collectAsStateWithLifecycle()
-    val readingWindowFocused = LocalWindowInfo.current.isWindowFocused
     val latestAnswer = conversation.currentMessages.lastOrNull()?.takeIf { it.role == MessageRole.ASSISTANT }
     val readingToken = "${conversation.id}/${latestAnswer?.id ?: "none"}"
     val canReadAnswer = latestAnswer != null && latestAnswer.parts.isNotEmpty() &&
         latestAnswer.parts.none { it is UIMessagePart.Tool && it.isPending } &&
-        pageLifecycle.isAtLeast(Lifecycle.State.RESUMED) && readingWindowFocused
+        readingPowerPageVisible(pageLifecycle)
     LaunchedEffect(readingToken, canReadAnswer, loadingJob, voiceForPower.isActive, dictationForPower.isRecording, speakingForPower) {
         readingPower.setReading(readingToken, canReadAnswer, loadingJob != null || voiceForPower.isActive || dictationForPower.isRecording || speakingForPower)
     }

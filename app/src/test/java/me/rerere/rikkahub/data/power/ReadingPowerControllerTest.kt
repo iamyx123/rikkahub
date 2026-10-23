@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.data.power
 
+import androidx.lifecycle.Lifecycle
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -76,6 +77,53 @@ class ReadingPowerControllerTest {
         configure(true, delaySeconds)
         setAppForeground(true)
         setReading("classroom-chat", hasCompletedAnswer = true, generating = false)
+    }
+
+    @Test
+    fun `opening and closing the system shade preserves airplane mode until the page actually stops`() = runTest {
+        val access = Access()
+        val controller = controller(access)
+        controller.read(0)
+        runCurrent()
+        repeat(3) {
+            for (state in listOf(Lifecycle.State.STARTED, Lifecycle.State.RESUMED)) {
+                controller.setReading("classroom-chat", readingPowerPageVisible(state), false)
+                controller.refreshSystemFlightMode()
+                runCurrent()
+                assertTrue(access.flight)
+                assertTrue(controller.state.value.ownsFlightMode)
+            }
+        }
+        assertEquals(listOf(true), access.writes)
+        controller.setReading("classroom-chat", readingPowerPageVisible(Lifecycle.State.CREATED), false)
+        runCurrent()
+        assertFalse(access.flight)
+        assertEquals(listOf(true, false), access.writes)
+    }
+
+    @Test
+    fun `a quick time check keeps the original deadline and a running answer never goes offline`() = runTest {
+        val access = Access()
+        val controller = controller(access)
+        controller.read(30)
+        runCurrent()
+        advanceTimeBy(10_000)
+        controller.setReading("classroom-chat", readingPowerPageVisible(Lifecycle.State.STARTED), false)
+        runCurrent()
+        advanceTimeBy(5_000)
+        controller.setReading("classroom-chat", readingPowerPageVisible(Lifecycle.State.RESUMED), false)
+        runCurrent()
+        assertEquals(30_000L, controller.state.value.deadlineElapsedMs)
+        advanceTimeBy(15_000)
+        runCurrent()
+        assertEquals(listOf(true), access.writes)
+        controller.setReading("classroom-chat", true, true)
+        runCurrent()
+        controller.setReading("classroom-chat", readingPowerPageVisible(Lifecycle.State.STARTED), true)
+        advanceTimeBy(120_000)
+        runCurrent()
+        assertFalse(access.flight)
+        assertEquals(listOf(true, false), access.writes)
     }
 
     @Test
