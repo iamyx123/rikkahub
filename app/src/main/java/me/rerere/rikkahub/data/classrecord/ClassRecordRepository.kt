@@ -89,6 +89,18 @@ class ClassRecordRepository(
 
     @Volatile private var connection = Connection(classRecordOrigin(CLASS_RECORD_ORIGIN), false)
     @Volatile private var restorePending = true
+    @Volatile private var toolsRefreshedAt = 0L
+
+    suspend fun refreshToolCapabilities() {
+        if (state.value.user == null || System.currentTimeMillis() - toolsRefreshedAt < 60_000) return
+        val current = connection
+        val tools = exchange(current, "GET", "$CLASS_RECORD_PREFIX/tools").crObject()
+        synchronized(this) {
+            assertCurrent(current)
+            mutableState.update { it.copy(tools = (tools["tools"] as? JsonArray).orEmpty().mapNotNull { item -> item as? JsonObject }) }
+            toolsRefreshedAt = System.currentTimeMillis()
+        }
+    }
 
     init {
         runCatching {
@@ -185,6 +197,7 @@ class ClassRecordRepository(
             onTools = { tools -> synchronized(this) {
                 assertCurrent(current)
                 mutableState.update { it.copy(tools = tools) }
+                toolsRefreshedAt = System.currentTimeMillis()
             } },
             onOperations = { operations -> synchronized(this) {
                 assertCurrent(current)

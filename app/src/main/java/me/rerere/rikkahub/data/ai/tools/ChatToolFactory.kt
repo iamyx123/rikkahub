@@ -2,12 +2,18 @@ package me.rerere.rikkahub.data.ai.tools
 
 import android.content.Context
 import android.util.Log
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.*
+import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.ai.mcp.McpManager
+import me.rerere.rikkahub.data.ai.mcp.serverUrl
+import me.rerere.rikkahub.data.classrecord.CLASS_RECORD_READING_PROMPT
+import me.rerere.rikkahub.data.classrecord.ClassRecordReadSession
+import me.rerere.rikkahub.data.classrecord.efficientClassRecordArguments
+import me.rerere.rikkahub.data.classrecord.readClassRecordPages
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.files.FileFolders
@@ -27,6 +33,14 @@ private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
 
 // 搜索结果的体积由用户设置的结果数决定，且结果列表 UI 与引用跳转都依赖完整的 JSON 结构，不参与截断
 private val TOOLS_WITHOUT_OUTPUT_TRUNCATION = setOf("search_web")
+
+internal fun isPagedClassRecordTool(name: String): Boolean = name.startsWith("classrecord__") &&
+    name.substringAfter("classrecord__") in setOf("get_lesson_context", "fetch", "fetch_material")
+
+internal fun isClassRecordMcpUrl(url: String): Boolean = runCatching {
+    val uri = java.net.URI(url)
+    uri.scheme == "https" && uri.host == "classroom.iamyx.co" && uri.path.trimEnd('/') == "/mcp"
+}.getOrDefault(false)
 
 internal fun shouldUseExternalWebSearch(assistant: Assistant, model: Model): Boolean {
     return assistant.enableWebSearch && BuiltInTools.Search !in model.tools
@@ -52,6 +66,7 @@ class ChatToolFactory(
         model: Model,
         workspaceCwd: String? = null,
     ): List<Tool> {
+        val pagedClassroomMcpNames = mutableSetOf<String>()
         val workspaceTools = createWorkspaceToolsIfReady(assistant.workspaceId?.toString(), workspaceCwd)
         val tools = buildList {
             if (assistant.enableMemory) {
@@ -85,14 +100,36 @@ class ChatToolFactory(
             if (invalidNames.isNotEmpty()) {
                 throw InvalidMcpServerNamesException(invalidNames)
             }
+            val classroomReadSessions = mutableMapOf<Uuid, ClassRecordReadSession>()
+            val classroomPromptServers = mutableSetOf<Uuid>()
             mcpTools.forEach { (serverId, serverName, tool) ->
+                val classroom = settings.mcpServers.firstOrNull { it.id == serverId }?.serverUrl?.let(::isClassRecordMcpUrl) == true
+                val toolName = "mcp__${serverName}__${tool.name}"
+                val session = if (classroom) classroomReadSessions.getOrPut(serverId) { ClassRecordReadSession() } else null
+                if (classroom && tool.name in setOf("get_lesson_context", "fetch", "fetch_material")) pagedClassroomMcpNames.add(toolName)
+                val prompt = if (classroom && classroomPromptServers.add(serverId)) CLASS_RECORD_READING_PROMPT else ""
                 add(
                     Tool(
-                        name = "mcp__${serverName}__${tool.name}",
+                        name = toolName,
                         description = tool.description ?: "",
                         parameters = { tool.inputSchema },
+                        systemPrompt = { _, _ -> prompt },
                         needsApproval = { tool.needsApproval },
-                        execute = { mcpManager.callTool(serverId, tool.name, it.jsonObject) },
+                        execute = { input ->
+                            if (session == null || tool.needsApproval || tool.name in setOf("get_material_download", "get_latest_classroom_screenshot")) {
+                                mcpManager.callTool(serverId, tool.name, input.jsonObject)
+                            } else classRecordResult {
+                                val schema = buildJsonObject { put("properties", (tool.inputSchema as? InputSchema.Obj)?.properties ?: buildJsonObject {}) }
+                                val arguments = efficientClassRecordArguments(tool.name, input.jsonObject, schema)
+                                session.read(tool.name, arguments) {
+                                    readClassRecordPages(tool.name, arguments, { name, args ->
+                                        val parts = mcpManager.callTool(serverId, name, args)
+                                        val text = parts.filterIsInstance<UIMessagePart.Text>().firstOrNull()?.text ?: error("课堂工具未返回文字结果。")
+                                        runCatching { Json.parseToJsonElement(text) }.getOrElse { buildJsonObject { put("isError", true); put("detail", text) } }
+                                    })
+                                }
+                            }
+                        },
                     )
                 )
             }
@@ -101,11 +138,11 @@ class ChatToolFactory(
         // 文件放在本机, 只有本地 Rootfs 挂载了 /tool_outputs, 远程工作区同样读不到
         val canReadToolOutputs = workspaceTools.isNotEmpty() &&
             assistant.workspaceId?.let { workspaceRepository.getById(it.toString()) }?.capabilities()?.rootfs == true
-        return if (canReadToolOutputs) tools.map(::withOutputTruncation) else tools
+        return if (canReadToolOutputs) tools.map { if (it.name in pagedClassroomMcpNames) it else withOutputTruncation(it) } else tools
     }
 
     private fun withOutputTruncation(tool: Tool): Tool {
-        if (tool.name in TOOLS_WITHOUT_OUTPUT_TRUNCATION) return tool
+        if (tool.name in TOOLS_WITHOUT_OUTPUT_TRUNCATION || isPagedClassRecordTool(tool.name)) return tool
         val execute = tool.execute
         return tool.copy(execute = { truncateOutput(execute(it)) })
     }
