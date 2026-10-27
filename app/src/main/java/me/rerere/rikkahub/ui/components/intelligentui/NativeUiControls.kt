@@ -83,7 +83,6 @@ internal fun NativeUiChoice(type: String, p: JsonObject, enabled: Boolean, dispa
     }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (p.text("label").isNotBlank()) Text(p.text("label"), style = MaterialTheme.typography.labelLarge)
-        if (!active) Text("只读：${options.firstOrNull { it.first == selected }?.second ?: selected.ifBlank { "未选择" }}", style = MaterialTheme.typography.bodySmall)
         when {
             type == "Select" -> {
                 var expanded by remember { mutableStateOf(false) }
@@ -97,7 +96,7 @@ internal fun NativeUiChoice(type: String, p: JsonObject, enabled: Boolean, dispa
                     )
                     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                         options.forEach { (value, label, _) -> DropdownMenuItem(
-                            text = { Text(label) },
+                            text = { NativeUiRichText(label) },
                             leadingIcon = { RadioButton(selected = selected == value, onClick = null) },
                             enabled = active,
                             onClick = { expanded = false; select(value) },
@@ -113,14 +112,14 @@ internal fun NativeUiChoice(type: String, p: JsonObject, enabled: Boolean, dispa
                         shape = SegmentedButtonDefaults.itemShape(index, options.size),
                         enabled = active,
                         icon = { SegmentedButtonDefaults.Icon(active = selected == value) },
-                    ) { Text(label) }
+                    ) { NativeUiRichText(label) }
                 }
             }
             else -> options.forEach { (value, label, description) ->
                 Row(Modifier.fillMaxWidth().clickable(enabled = active) { select(value) }, verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(selected = selected == value, onClick = { select(value) }, enabled = active)
-                    Column {
-                        Text(label)
+                    Column(Modifier.weight(1f)) {
+                        NativeUiRichText(label)
                         if (description.isNotBlank()) Text(description, style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -138,11 +137,7 @@ internal fun NativeUiBoolean(type: String, p: JsonObject, enabled: Boolean, disp
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         if (type == "Checkbox") Checkbox(checked, update, enabled = active) else Switch(checked, update, enabled = active)
         Column(Modifier.weight(1f)) {
-            Text(p.text("label"))
-            val status = if (type == "Checkbox") {
-                if (checked) "已选中" else "未选中"
-            } else if (checked) "已开启" else "已关闭"
-            Text(status + if (active) "" else " · 只读", style = MaterialTheme.typography.bodySmall)
+            NativeUiRichText(p.text("label"))
         }
     }
 }

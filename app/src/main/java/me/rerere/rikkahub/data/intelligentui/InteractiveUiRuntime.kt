@@ -57,7 +57,7 @@ object InteractiveUiRuntime {
                         event?.let { put("event", it) }
                     }
                     val result = js.evaluate<String>("RikkaOpenUI.renderJson(${JsonPrimitive(request.toString())})")
-                    require(result.length <= 256 * 1024) { "交互结果过大" }
+                    require(result.length <= 512 * 1024) { "交互结果过大" }
                     Json.parseToJsonElement(result).jsonObject
                 } catch (error: Throwable) {
                     runtime?.close()

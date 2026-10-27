@@ -20,6 +20,11 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.ui.graphics.takeOrElse
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.KeyboardType
@@ -52,7 +57,8 @@ private data class UiMessageContext(
     val message: UIMessage,
     val enabled: Boolean,
     val save: suspend (String, JsonObject) -> Unit,
-    val draft: (String) -> Unit,
+    /** 卡片里的 @ToAssistant：直接以用户身份发出，卡片当前的数值随消息一起带上 */
+    val send: (String) -> Unit,
     val conversationId: Uuid? = null,
 )
 private val LocalInteractiveMessage = staticCompositionLocalOf<UiMessageContext?> { null }
@@ -64,12 +70,12 @@ fun ProvideInteractiveUiExport(message: UIMessage, content: @Composable () -> Un
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProvideInteractiveUi(conversationId: Uuid?, message: UIMessage, enabled: Boolean, draft: (String) -> Unit, content: @Composable () -> Unit) {
+fun ProvideInteractiveUi(conversationId: Uuid?, message: UIMessage, enabled: Boolean, send: (String) -> Unit, content: @Composable () -> Unit) {
     val service: ChatService = koinInject()
-    val value = remember(conversationId, message, enabled, draft) {
+    val value = remember(conversationId, message, enabled, send) {
         UiMessageContext(message, enabled && message.role == MessageRole.ASSISTANT,
             save = { source, state -> conversationId?.let { check(service.saveInteractiveUiState(it, message.id, source, state)) { "原卡片已改变，状态未保存" } } },
-            draft = draft, conversationId = conversationId)
+            send = send, conversationId = conversationId)
     }
     CompositionLocalProvider(
         LocalInteractiveMessage provides value,
@@ -124,7 +130,7 @@ fun InteractiveUiBlock(source: String, complete: Boolean) {
             next.list("effects").takeIf { mounted.get() }?.forEach { item ->
                 val effect = item.jsonObject
                 when (effect.text("type")) {
-                    "draft" -> currentHost.draft(effect.text("text"))
+                    "send", "draft" -> currentHost.send(effect.text("text"))
                     "url" -> if (effect.text("text").startsWith("https://") || effect.text("text").startsWith("http://")) uriHandler.openUri(effect.text("text"))
                     "copy" -> (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
                         .setPrimaryClip(ClipData.newPlainText("交互卡片",effect.text("text")))
@@ -161,21 +167,28 @@ fun InteractiveUiBlock(source: String, complete: Boolean) {
     Surface(shape=MaterialTheme.shapes.largeIncreased,color=MaterialTheme.colorScheme.surfaceContainerLow,
         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),modifier=Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment=Alignment.CenterVertically) {
-                Text("交互卡片",style=MaterialTheme.typography.titleSmallEmphasized,modifier=Modifier.weight(1f))
-                if (busy && !LocalSettings.current.displaySetting.disableCursorBlink) Text("更新中",style=MaterialTheme.typography.labelSmall)
-                TextButton(onClick={showSource=!showSource}) { Text(if(showSource) "显示卡片" else "源码") }
-                TextButton(enabled=!busy&&host.enabled,onClick={dispatch(buildJsonObject{put("type","reset")})}) { Text("重置") }
-            }
             if (!complete || !host.enabled && result==null) Text("正在生成交互内容…",style=MaterialTheme.typography.bodySmall)
-            error?.let { message ->
-                Text(message,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
-                TextButton(enabled=!busy,onClick={enqueue()}) { Text("重新显示") }
-            }
             if(showSource || error!=null && result==null) HighlightCodeBlock(source,"openui-lang",Modifier.fillMaxWidth(),completeCodeBlock=complete)
             else result?.get("root")?.let { NativeUiNode(it,host.enabled,::dispatch) }
-            result?.list("errors")?.takeIf { it.isNotEmpty() }?.let {
-                Text("部分内容未能显示，可查看源码",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.error)
+            // 出错时把具体原因交给模型修，用户点一下就行，不用自己看源码
+            val problems = buildList {
+                error?.let(::add)
+                result?.list("errors")?.forEach { (it as? JsonPrimitive)?.contentOrNull?.let(::add) }
+            }
+            if (problems.isNotEmpty()) {
+                Text(if (result == null) "卡片没能显示：${problems.first()}" else "卡片有部分内容没显示出来",
+                    color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+                    FilledTonalButton(enabled=!busy&&host.enabled,onClick={
+                        currentHost.send("上面的交互卡片有问题：${problems.take(3).joinToString("；")}。请修正后重新给出完整的卡片。")
+                    }) { Text("让 AI 修正") }
+                    TextButton(enabled=!busy,onClick={enqueue()}) { Text("重新显示") }
+                }
+            }
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End,verticalAlignment=Alignment.CenterVertically) {
+                if (busy && !LocalSettings.current.displaySetting.disableCursorBlink) Text("更新中",style=MaterialTheme.typography.labelSmall,modifier=Modifier.weight(1f))
+                TextButton(onClick={showSource=!showSource}) { Text(if(showSource) "显示卡片" else "源码",style=MaterialTheme.typography.labelMedium) }
+                TextButton(enabled=!busy&&host.enabled,onClick={dispatch(buildJsonObject{put("type","reset")})}) { Text("重置",style=MaterialTheme.typography.labelMedium) }
             }
         }
     }
@@ -221,10 +234,17 @@ internal fun NativeUiNode(node: JsonElement?, enabled: Boolean, dispatch: (JsonO
         "Link" -> NativeUiLink(p)
         "Icon" -> NativeUiIcon(p)
         "ListItem" -> Column { if(p.text("label").isNotBlank()) Text(p.text("label"),style=MaterialTheme.typography.labelSmall); NativeUiSlot(p["content"], enabled, dispatch) }
-        "Title" -> Text(p.text("text"),style=MaterialTheme.typography.titleMedium)
-        "Caption","Label" -> Text(p.text("text"),style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        "Title" -> ProvideTextStyle(nativeUiTitleStyle(p.text("size"))) {
+            NativeUiRichText(p.text("text"), nativeUiTextColor(p.text("color")))
+        }
+        "Caption","Label" -> ProvideTextStyle(MaterialTheme.typography.labelMedium) {
+            NativeUiRichText(p.text("text"), nativeUiTextColor(p.text("color")).takeOrElse { MaterialTheme.colorScheme.onSurfaceVariant })
+        }
         "Badge" -> Surface(shape=MaterialTheme.shapes.small,color=MaterialTheme.colorScheme.secondaryContainer,border=if(eink)BorderStroke(1.dp,MaterialTheme.colorScheme.outline)else null){Text(p.text("text"),Modifier.padding(horizontal=10.dp,vertical=5.dp),style=MaterialTheme.typography.labelMedium)}
-        "Text" -> if(p["text"] is JsonArray) FlowRow(horizontalArrangement=Arrangement.spacedBy(4.dp)) { NativeUiSlot(p["text"],enabled,dispatch) } else CompositionLocalProvider(LocalInteractiveMessage provides null) { MarkdownBlock(p.text("text")) }
+        "Text" -> ProvideTextStyle(nativeUiBodyStyle(p.text("size"), p.text("weight"), (p["lineThrough"] as? JsonPrimitive)?.booleanOrNull == true)) {
+            if(p["text"] is JsonArray) FlowRow(horizontalArrangement=Arrangement.spacedBy(4.dp)) { NativeUiSlot(p["text"],enabled,dispatch) }
+            else NativeUiRichText(p.text("text"), nativeUiTextColor(p.text("color")))
+        }
         "Quote" -> Text(p.text("text"),style=MaterialTheme.typography.bodyMedium)
         "Markdown" -> CompositionLocalProvider(LocalInteractiveMessage provides null){MarkdownBlock(p.text("text"))}
         "Code" -> HighlightCodeBlock(p.text("text"),"plaintext",Modifier.fillMaxWidth(),completeCodeBlock=true)
@@ -242,7 +262,7 @@ internal fun NativeUiNode(node: JsonElement?, enabled: Boolean, dispatch: (JsonO
             ) {
                 icon()
                 Spacer(Modifier.width(6.dp))
-                Text(p.text("label").ifBlank { "操作" } + if (active) "" else "（不可用）")
+                Text(p.text("label").ifBlank { "操作" })
             } else FilledTonalIconButton(enabled = active, onClick = click) { icon() }
         }
         "Pressable" -> {
@@ -252,15 +272,14 @@ internal fun NativeUiNode(node: JsonElement?, enabled: Boolean, dispatch: (JsonO
                 enabled = active,
                 onClick = { dispatch(buildJsonObject { put("type", "action"); put("target", p.text("action")) }) },
                 modifier = Modifier.fillMaxWidth(),
-                border = BorderStroke(if (selected == true) 2.dp else 1.dp, MaterialTheme.colorScheme.outline),
+                colors = if (selected == true && !eink) CardDefaults.outlinedCardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    disabledContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                ) else CardDefaults.outlinedCardColors(),
+                border = BorderStroke(if (selected == true) 2.5.dp else 1.dp, if (selected == true) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline),
             ) {
-                Column(Modifier.padding(12.dp)) {
-                    if (selected != null) Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = selected, onCheckedChange = null)
-                        Text(if (selected) "已选择" else "未选择", style = MaterialTheme.typography.labelMedium)
-                    }
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (p.text("label").isNotBlank()) Text(p.text("label"), style = MaterialTheme.typography.labelLarge)
-                    if (!active) Text("只读", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                     children.forEach { NativeUiNode(it, false, {}) }
                 }
             }
@@ -268,7 +287,7 @@ internal fun NativeUiNode(node: JsonElement?, enabled: Boolean, dispatch: (JsonO
         "Button" -> {
             val click={dispatch(buildJsonObject{put("type","action");put("target",p.text("action"))})}
             val active=enabled && p.text("action").isNotBlank() && (p["disabled"] as? JsonPrimitive)?.booleanOrNull!=true
-            val label = p.text("label") + if (active) "" else "（不可用）"
+            val label = p.text("label")
             if (eink) OutlinedButton(
                 onClick = click, enabled = active,
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface, disabledContentColor = MaterialTheme.colorScheme.onSurface),
@@ -334,4 +353,47 @@ private fun NativeInput(id:String,p:JsonObject,type:String,enabled:Boolean,dispa
             }
         }
     } else OutlinedTextField(value=text,onValueChange=update,enabled=enabled,label={Text(p.text("label"))},placeholder={Text(p.text("placeholder"))},keyboardOptions=keyboard,singleLine=type!="TextArea",maxLines=if(type=="TextArea")6 else 1,modifier=Modifier.fillMaxWidth().onFocusChanged { focused=it.isFocused })
+}
+
+/** 卡片里的文字都按 Markdown 渲染，公式、\ce{}、\smiles{} 都能用；不会再嵌套出新的交互卡片 */
+@Composable
+internal fun NativeUiRichText(text: String, color: Color = Color.Unspecified) {
+    CompositionLocalProvider(LocalInteractiveMessage provides null) {
+        if (color.isSpecified) {
+            CompositionLocalProvider(LocalContentColor provides color) { MarkdownBlock(text) }
+        } else {
+            MarkdownBlock(text)
+        }
+    }
+}
+
+@Composable
+internal fun nativeUiTextColor(value: String): Color =
+    if (value.isBlank()) Color.Unspecified else rememberNativeUiPalette().ink(value)
+
+@Composable
+private fun nativeUiTitleStyle(size: String) = when (size) {
+    "sm" -> MaterialTheme.typography.titleSmall
+    "lg" -> MaterialTheme.typography.titleLarge
+    "xl", "2xl", "3xl" -> MaterialTheme.typography.headlineSmall
+    else -> MaterialTheme.typography.titleMedium
+}
+
+@Composable
+private fun nativeUiBodyStyle(size: String, weight: String, lineThrough: Boolean): TextStyle {
+    val base = when (size) {
+        "xs" -> MaterialTheme.typography.bodySmall
+        "sm" -> MaterialTheme.typography.bodyMedium
+        "lg" -> MaterialTheme.typography.titleMedium
+        else -> MaterialTheme.typography.bodyLarge
+    }
+    return base.copy(
+        fontWeight = when (weight) {
+            "medium" -> FontWeight.Medium
+            "semibold" -> FontWeight.SemiBold
+            "bold" -> FontWeight.Bold
+            else -> base.fontWeight
+        },
+        textDecoration = if (lineThrough) TextDecoration.LineThrough else null,
+    )
 }

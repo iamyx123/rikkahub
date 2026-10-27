@@ -59,6 +59,8 @@ data class Settings(
     val suggestionPrompt: String = DEFAULT_SUGGESTION_PROMPT,
     // null uses the bundled native UI instructions; a custom value adds user preferences.
     val interactiveUiPrompt: String? = null,
+    // 新会话是否默认开启交互界面，跟随用户最近一次的选择
+    val interactiveUiDefault: Boolean = false,
     val ocrModelId: Uuid = Uuid.random(),
     val ocrPrompt: String = DEFAULT_OCR_PROMPT,
     val assistantId: Uuid = DEFAULT_ASSISTANT_ID,

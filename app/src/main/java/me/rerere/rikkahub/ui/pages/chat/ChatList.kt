@@ -160,7 +160,7 @@ fun ChatList(
     onForkMessage: (UIMessage) -> Unit = {},
     onDelete: (UIMessage) -> Unit = {},
     onUpdateMessage: (MessageNode) -> Unit = {},
-    onInteractiveDraft: (String) -> Unit = {},
+    onInteractiveSend: (String) -> Unit = {},
     onClickSuggestion: (String) -> Unit = {},
     onTranslate: ((UIMessage, java.util.Locale) -> Unit)? = null,
     onClearTranslation: (UIMessage) -> Unit = {},
@@ -224,7 +224,7 @@ fun ChatList(
                 onAddBookmark = onAddBookmark,
                 onDeleteBookmark = onDeleteBookmark,
                 onQuote = onQuote,
-                onInteractiveDraft = onInteractiveDraft,
+                onInteractiveSend = onInteractiveSend,
                 transientResetSignal = transientResetSignal,
             )
         }
@@ -283,7 +283,7 @@ private fun ChatListNormal(
     onAddBookmark: (nodeId: Uuid, scrollOffset: Int, label: String) -> Unit = { _, _, _ -> },
     onDeleteBookmark: (Uuid) -> Unit = {},
     onQuote: (String) -> Unit = {},
-    onInteractiveDraft: (String) -> Unit = {},
+    onInteractiveSend: (String) -> Unit = {},
     transientResetSignal: Int = 0,
 ) {
     val scope = rememberCoroutineScope()
@@ -406,7 +406,7 @@ private fun ChatListNormal(
                     ) {
                         ChatMessage(
                             conversationId = conversation.id,
-                            onInteractiveDraft = onInteractiveDraft,
+                            onInteractiveSend = onInteractiveSend,
                             node = node,
                             model = node.currentMessage.modelId?.let(modelById::get)
                                 ?: node.currentMessage.snapshotModel(),

@@ -16,7 +16,7 @@ internal const val INTERACTIVE_UI_CONTEXT_LIMIT = 128 * 1024
 internal fun interactiveUiPrompt(bundled: String, custom: String?): String {
     if (custom.isNullOrBlank()) return bundled
     require(custom.length <= INTERACTIVE_UI_CUSTOM_PROMPT_LIMIT) { "交互界面自定义提示词不能超过 16384 个字符" }
-    return "$bundled\n\nUser preferences for native interactive answers (the component syntax and runtime limits above still apply):\n${custom.trim()}"
+    return "$bundled\n\nUser preferences for interactive cards (the component syntax above still applies):\n${custom.trim()}"
 }
 
 internal fun interactiveUiChange(target: String, value: JsonElement, transient: Boolean = false, commit: Boolean = false): JsonObject =

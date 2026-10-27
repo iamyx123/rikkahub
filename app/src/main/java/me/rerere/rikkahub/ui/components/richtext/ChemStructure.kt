@@ -57,7 +57,7 @@ fun ChemStructureImage(
     val density = LocalDensity.current
     val ink = LocalContentColor.current
     val inkArgb = ink.toArgb()
-    val textSize = fontSize.takeOrElse { LocalTextStyle.current.fontSize }.takeOrElse { 16.sp }
+    val textSize = fontSize.takeOrElse { LocalTextStyle.current.fontSize }.let { if (it.isSp) it else 16.sp }
     val textSizePx = with(density) { textSize.toPx() }
     val exporting = LocalExportContext.current
     val result by produceState(

@@ -132,6 +132,7 @@ class SettingsStore internal constructor(
         val TRANSLATE_TARGET_LANGUAGE = stringPreferencesKey("translate_target_language")
         val SUGGESTION_PROMPT = stringPreferencesKey("suggestion_prompt")
         val INTERACTIVE_UI_PROMPT = stringPreferencesKey("interactive_ui_prompt")
+        val INTERACTIVE_UI_DEFAULT = booleanPreferencesKey("interactive_ui_default")
         val OCR_MODEL = stringPreferencesKey("ocr_model")
         val OCR_PROMPT = stringPreferencesKey("ocr_prompt")
 

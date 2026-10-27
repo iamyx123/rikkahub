@@ -29,19 +29,14 @@ import coil3.request.crossfade
 internal fun NativeUiImage(p:JsonObject) {
     val url=p.text("url")
     val context=LocalContext.current
-    var opened by remember(url){mutableStateOf(false)}
     var failed by remember(url){mutableStateOf(false)}
-    Column {
-        Text(p.text("alt"),style=MaterialTheme.typography.bodySmall)
-        if (url.startsWith("https://")) {
-            if(!opened) OutlinedButton(onClick={opened=true}){Text("加载图片")}
-            else {
-                val request=remember(url){ImageRequest.Builder(context).data(url).size(1024,1024)
-                    .decoderFactory(BitmapFactoryDecoder.Factory()).crossfade(false).build()}
-                AsyncImage(model=request,contentDescription=p.text("alt"),modifier=Modifier.fillMaxWidth().heightIn(max=320.dp),onError={failed=true})
-                if(failed)Text("图片未能加载",style=MaterialTheme.typography.labelSmall)
-            }
+    Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
+        if (url.startsWith("https://") || url.startsWith("http://")) {
+            val request=remember(url){ImageRequest.Builder(context).data(url).size(1024,1024)
+                .decoderFactory(BitmapFactoryDecoder.Factory()).crossfade(false).build()}
+            AsyncImage(model=request,contentDescription=p.text("alt"),modifier=Modifier.fillMaxWidth().heightIn(max=320.dp),onError={failed=true})
         }
+        if (failed || p.text("alt").isNotBlank() && url.isBlank()) Text(p.text("alt"),style=MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -119,60 +114,7 @@ internal fun NativeUiChart(p: JsonObject) {
                 }
             }
         }
-        // Exact values make charts readable on monochrome screens and accessible without color.
-        Text(series.joinToString(" · "),style=MaterialTheme.typography.labelMedium)
-        rows.take(12).forEach { row -> Text(row.text(p.text("xKey"))+"："+series.joinToString("，"){"$it ${row.number(it)}"},style=MaterialTheme.typography.bodySmall) }
-        if(rows.size>12) Text("共 ${rows.size} 个数据点；完整数据见源码",style=MaterialTheme.typography.labelSmall)
-    }
-}
-
-@Composable
-internal fun NativeUiVector(p: JsonObject, showDescription: Boolean = true) {
-    val scheme = MaterialTheme.colorScheme
-    val monochrome=LocalSettings.current.displaySetting.disableCursorBlink
-    val view=remember(p.text("viewBox")) { p.text("viewBox").split(Regex("[ ,]+")).mapNotNull{it.toFloatOrNull()?.takeIf(Float::isFinite)}.takeIf{it.size==4&&it[2] in 1f..100000f&&it[3] in 1f..100000f} ?: listOf(0f,0f,400f,240f) }
-    fun color(value:String,default:Color=scheme.onSurface):Color = when(value) {
-        "none" -> Color.Transparent
-        "primary" -> if(monochrome)scheme.onSurface else scheme.primary
-        "secondary" -> if(monochrome)scheme.onSurface else scheme.secondary
-        "surface" -> scheme.surface
-        "muted" -> scheme.onSurfaceVariant
-        "ink","" -> default
-        else -> if(monochrome)scheme.onSurface else runCatching{Color(android.graphics.Color.parseColor(value))}.getOrDefault(default)
-    }
-    val textPaint=remember { Paint(Paint.ANTI_ALIAS_FLAG) }
-    Column {
-        Canvas(Modifier.fillMaxWidth().aspectRatio((view[2]/view[3]).coerceIn(.5f,3f))) {
-            fun DrawScope.shape(node:JsonElement,depth:Int=0) {
-                if(depth>24)return
-                val o=node as? JsonObject ?: return
-                val v=o["props"] as? JsonObject ?: return
-                val type=o.text("type")
-                fun n(key:String)=v.number(key).coerceIn(-100000.0,100000.0).toFloat()
-                if(type=="G"){v.list("children").forEach{shape(it,depth+1)};return}
-                if(type=="SvgText") {
-                    textPaint.color=color(v.text("fill")).toArgb();textPaint.textSize=v.number("size",14.0).coerceIn(6.0,96.0).toFloat()
-                    drawContext.canvas.nativeCanvas.drawText(v.text("text").take(1000),n("x"),n("y"),textPaint);return
-                }
-                val path=Path()
-                when(type) {
-                    "Circle" -> path.addOval(androidx.compose.ui.geometry.Rect(n("cx")-n("r"),n("cy")-n("r"),n("cx")+n("r"),n("cy")+n("r")))
-                    "Ellipse" -> path.addOval(androidx.compose.ui.geometry.Rect(n("cx")-n("rx"),n("cy")-n("ry"),n("cx")+n("rx"),n("cy")+n("ry")))
-                    "Rect" -> path.addRect(androidx.compose.ui.geometry.Rect(n("x"),n("y"),n("x")+n("width"),n("y")+n("height")))
-                    "Line" -> {path.moveTo(n("x1"),n("y1"));path.lineTo(n("x2"),n("y2"))}
-                    "Path" -> runCatching{path.addPath(PathParser().parsePathString(v.text("data").take(16000)).toPath())}
-                    "Polygon","Polyline" -> {
-                        val coords=v.text("data").split(Regex("[ ,]+")).mapNotNull{it.toFloatOrNull()?.takeIf(Float::isFinite)}.take(2000)
-                        coords.chunked(2).filter{it.size==2}.forEachIndexed{i,xy->if(i==0)path.moveTo(xy[0],xy[1]) else path.lineTo(xy[0],xy[1])}
-                        if(type=="Polygon")path.close()
-                    }
-                }
-                if(type!="Line"&&type!="Polyline")drawPath(path,color(v.text("fill","ink")))
-                if(v.text("stroke").isNotEmpty()||type=="Line"||type=="Polyline")drawPath(path,color(v.text("stroke")),style=Stroke(v.number("strokeWidth",1.5).coerceIn(.1,20.0).toFloat()))
-            }
-            clipRect { scale(size.width/view[2],size.height/view[3],pivot=Offset.Zero){translate(-view[0],-view[1]){p.list("children").forEach{shape(it)}}} }
-        }
-        if(showDescription && p.text("description").isNotBlank()) Text(p.text("description"),style=MaterialTheme.typography.bodySmall)
+        if (series.size > 1 || type == "pie" || type == "donut") Text(series.joinToString(" · "),style=MaterialTheme.typography.labelMedium)
     }
 }
 

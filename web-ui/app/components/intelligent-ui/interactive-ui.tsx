@@ -77,7 +77,12 @@ export function InteractiveUi({ source }: { source: string }) {
             }
             for (const effect of next.effects) {
               if (!alive.current || currentCard.current !== card) break;
-              if (effect.type === "draft") {
+              if (effect.type === "send") {
+                // 卡片里的追问直接发出，卡片当前的数值由后端随消息附上
+                await api.post<{ status: string }>(`conversations/${h.conversationId}/messages`, {
+                  parts: [{ type: "text", text: effect.text }],
+                });
+              } else if (effect.type === "draft") {
                 const store = useChatInputStore.getState();
                 store.setText(
                   h.conversationId,

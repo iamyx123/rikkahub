@@ -535,7 +535,7 @@ private fun ChatPageContent(
                 val messageQueue by vm.messageQueue.collectAsStateWithLifecycle()
                 val voiceState by vm.voiceSession.state.collectAsStateWithLifecycle()
                 ChatInput(
-                    interactiveUiEnabled = conversation.config?.enableInteractiveUi == true,
+                    interactiveUiEnabled = conversation.config?.enableInteractiveUi ?: setting.interactiveUiDefault,
                     onInteractiveUiEnabledChange = vm::setInteractiveUiEnabled,
                     onStartVoiceMode = onStartVoiceMode,
                     voiceState = voiceState,
@@ -603,10 +603,19 @@ private fun ChatPageContent(
             containerColor = Color.Transparent,
         ) { innerPadding ->
             ChatList(
-                onInteractiveDraft = { text ->
-                    inputState.editingMessage = null
-                    inputState.appendText(text)
-                    inputState.requestInputFocus()
+                // 卡片里的「这一步没看懂」「再出一题」直接发出去，卡片当前的数值由 ChatService 一并带上
+                onInteractiveSend = { text ->
+                    if (currentChatModel == null) {
+                        toaster.show("请先选择模型", type = ToastType.Error)
+                    } else if (loadingJob == null) {
+                        vm.handleMessageSend(listOf(UIMessagePart.Text(text)))
+                        if (setting.displaySetting.scrollToBottomOnSend) {
+                            scope.launch {
+                                delay(100.milliseconds)
+                                chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+                            }
+                        }
+                    }
                 },
                 innerPadding = innerPadding,
                 conversation = conversation,

@@ -128,7 +128,7 @@ fun ChatMessage(
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onQuote: (String) -> Unit = {},
     conversationId: kotlin.uuid.Uuid? = null,
-    onInteractiveDraft: (String) -> Unit = {},
+    onInteractiveSend: (String) -> Unit = {},
 ) {
     val message = node.messages[node.selectIndex]
     if (message.isContextCheckpoint) {
@@ -183,7 +183,7 @@ fun ChatMessage(
             }
         }
         me.rerere.rikkahub.ui.components.intelligentui.ProvideInteractiveUi(
-            conversationId, message, !loading, onInteractiveDraft,
+            conversationId, message, !loading, onInteractiveSend,
         ) {
         CompositionLocalProvider(
             LocalTextStyle provides textStyle,

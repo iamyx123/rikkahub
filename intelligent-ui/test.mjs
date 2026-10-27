@@ -15,7 +15,7 @@ test('bindings actions persisted state and reset',()=>{
 test('effects require an explicit action and do not auto send',()=>{
   const s='root = Col([Button("Discuss",@ToAssistant("继续")),Button("Copy",@CopyToClipboard("abc")),Button("Open",@OpenUrl("https://example.com"))])';
   assert.deepEqual(render(s).effects,[]);
-  assert.equal(render(s,{}, {type:'action',target:'root/children/0/action'}).effects[0].type,'draft');
+  assert.equal(render(s,{}, {type:'action',target:'root/children/0/action'}).effects[0].type,'send');
   assert.equal(render(s,{}, {type:'action',target:'root/children/0/action'}).effects[0].text,'继续');
   assert.equal(render(s,{}, {type:'action',target:'root/children/1/action'}).effects[0].text,'abc');
   assert.equal(render(s,{}, {type:'action',target:'root/children/2/action'}).effects[0].text,'https://example.com');
@@ -33,7 +33,7 @@ test('invalid input and resource limits yield recoverable errors',()=>{
   assert.throws(()=>render(source,{}, {type:'change',target:'missing',value:2}));
   assert.throws(()=>render(source,{}, {type:'change',target:'root/children/0/value',value:{bad:true}}));
   assert.throws(()=>render(source,{$n:'x'.repeat(32769)}));
-  assert.throws(()=>render('root = Col(['+Array.from({length:301},()=> 'Text("x")').join(',')+'])'));
+  assert.throws(()=>render('root = Col(['+Array.from({length:801},()=> 'Text("x")').join(',')+'])'));
   assert.ok(JSON.parse(renderJson('{invalid')).error);
 });
 

@@ -113,6 +113,7 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         plain(TRANSLATE_THINKING_BUDGET, Settings::translateThinkingBudget) { copy(translateThinkingBudget = it) },
         plain(TRANSLATE_TARGET_LANGUAGE, Settings::translateTargetLanguage) { copy(translateTargetLanguage = it) },
         plain(SUGGESTION_PROMPT, Settings::suggestionPrompt) { copy(suggestionPrompt = it) },
+        plain(INTERACTIVE_UI_DEFAULT, Settings::interactiveUiDefault) { copy(interactiveUiDefault = it) },
         SettingsField(
             INTERACTIVE_UI_PROMPT, Settings::interactiveUiPrompt, { copy(interactiveUiPrompt = it) },
             // Default instructions are bundled with the app; resetting removes the custom override.

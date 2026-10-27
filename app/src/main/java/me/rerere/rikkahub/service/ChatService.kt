@@ -914,6 +914,10 @@ class ChatService(
                 persist = conversationRepo::updateConversationConfig,
             )
         }
+        // 记住这次的选择，新会话沿用，不用每次都重新打开
+        if (settingsStore.settingsFlow.value.interactiveUiDefault != enabled) {
+            settingsStore.update { it.copy(interactiveUiDefault = enabled) }
+        }
     }
 
     suspend fun saveInteractiveUiState(conversationId: Uuid, messageId: Uuid, source: String, state: kotlinx.serialization.json.JsonObject): Boolean =

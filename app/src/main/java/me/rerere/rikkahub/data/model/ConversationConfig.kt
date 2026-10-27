@@ -138,7 +138,11 @@ fun Conversation.bindConfig(settings: Settings): Conversation {
     }
     val assistant = settings.getAssistantOf(this)
     return copy(
-        config = assistant.toConversationConfig().copy(chatModelId = model?.id, builtInSearch = builtInSearch),
+        config = assistant.toConversationConfig().copy(
+            chatModelId = model?.id,
+            builtInSearch = builtInSearch,
+            enableInteractiveUi = settings.interactiveUiDefault,
+        ),
         // 旧版本允许会话单独绑定注入，这类会话保留自己的绑定
         modeInjectionIds = modeInjectionIds.ifEmpty { assistant.modeInjectionIds },
         lorebookIds = lorebookIds.ifEmpty { assistant.lorebookIds },

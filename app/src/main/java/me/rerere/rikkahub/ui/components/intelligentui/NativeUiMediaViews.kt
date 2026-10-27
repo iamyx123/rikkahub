@@ -35,18 +35,21 @@ internal fun NativeUiSearchImage(p: JsonObject) {
     var photo by remember(query) { mutableStateOf<JsonObject?>(null) }
     var busy by remember(query) { mutableStateOf(false) }
     var error by remember(query) { mutableStateOf<String?>(null) }
+    suspend fun search() {
+        busy = true; error = null
+        try { photo = InteractiveUiMedia.photo(client, query) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { error = e.message?.take(160) ?: "图片搜索失败" }
+        finally { busy = false }
+    }
+    // 卡片显示出来就开始找图，不用再点一次
+    LaunchedEffect(query) { if (photo == null && query.isNotBlank()) search() }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(p.text("alt", query), style = MaterialTheme.typography.bodyMedium)
-        OutlinedButton(enabled = !busy, onClick = {
-            scope.launch {
-                busy = true; error = null
-                try { photo = InteractiveUiMedia.photo(client, query) }
-                catch (e: CancellationException) { throw e }
-                catch (e: Exception) { error = e.message?.take(160) ?: "图片搜索失败" }
-                finally { busy = false }
-            }
-        }) { Text(if (busy) "正在查找图片" else if (photo == null) "查找图片" else "重新查找") }
-        error?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        if (photo == null) Text(p.text("alt", query), style = MaterialTheme.typography.bodyMedium)
+        if (error != null) {
+            Text(error.orEmpty(), style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(enabled = !busy, onClick = { scope.launch { search() } }) { Text("重新查找") }
+        }
         photo?.let { found ->
             NativeUiImage(buildJsonObject { put("url", found.text("url")); put("alt", found.text("title")) })
             Text(found.text("credit"), style = MaterialTheme.typography.labelSmall)
