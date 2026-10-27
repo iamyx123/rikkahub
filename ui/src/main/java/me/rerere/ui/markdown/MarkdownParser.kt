@@ -41,7 +41,7 @@ private val markdownParser = MarkdownParser(flavour)
  */
 fun parseMarkdown(content: String, softBreakAsLineBreak: Boolean = true): MarkdownDocument {
     // 解析器只认 \n 作为换行，CRLF 里残留的 \r 会让围栏行匹配不上（比如结尾的 ``` 不被当作闭合）
-    val text = normalizeLatexDelimiters(content.replace(LINE_ENDING_REGEX, "\n"))
+    val text = protectTablePipesInMath(normalizeLatexDelimiters(content.replace(LINE_ENDING_REGEX, "\n")))
     val tree = markdownParser.buildMarkdownTreeFromString(text)
     val providers = flavour.createHtmlGeneratingProviders(LinkMap.buildLinkMap(tree, text), null) + mapOf(
         MarkdownTokenTypes.HTML_TAG to InlineHtmlTagProvider,
@@ -60,25 +60,67 @@ fun parseMarkdown(content: String, softBreakAsLineBreak: Boolean = true): Markdo
 
 private val LINE_ENDING_REGEX = Regex("""\r\n?""")
 
-// 第 1 组匹配代码（围栏未闭合时一直算到结尾）和公式里的换行 \\，用来跳过这些内容，
-// 不然 \\[4pt] 里的 \[ 会被当成块级公式的开头；第 2、3 组分别是 \( \) 和 \[ \]
-private val LATEX_DELIMITER_REGEX =
-    Regex("""(```[\s\S]*?(?:```|\z)|`[^`\n]*`|\\\\)|\\\((.+?)\\\)|\\\[([\s\S]+?)\\]""")
+// 第 1 组匹配代码（围栏未闭合时一直算到结尾）、已有的 $ 公式和公式里的换行 \\，用来跳过这些内容，
+// 不然 \\[4pt] 里的 \[ 会被当成块级公式的开头；第 2、3 组分别是 \( \) 和 \[ \]；
+// 第 4 组是漏写了 $ 的 \ce{...}、\smiles{...}，参数里允许再套两层括号
+private val LATEX_DELIMITER_REGEX = Regex(
+    """(```[\s\S]*?(?:```|\z)|`[^`\n]*`|\$\$[\s\S]+?\$\$|\$(?=[^\s$])[^$\n]*?(?<=[^\s\\])\$|\\\\)""" +
+        """|\\\((.+?)\\\)|\\\[([\s\S]+?)\\]""" +
+        """|(\\(?:ce|smiles)\s*(?:\[[^\]\n]*])?\{(?:[^{}\n]|\{(?:[^{}\n]|\{[^{}\n]*})*})*}(?:\{[^{}\n]*})?)"""
+)
 private val LATEX_LINE_BREAK_REGEX = Regex("""[ \t]*\r?\n[ \t]*""")
 
-/** 把 `\( \)`、`\[ \]` 形式的公式定界符换成解析器认识的 `$ $`、`$$ $$` */
+/** 把 `\( \)`、`\[ \]` 形式的公式定界符换成解析器认识的 `$ $`、`$$ $$`，给裸写的化学命令补上 `$` */
 internal fun normalizeLatexDelimiters(content: String): String {
     if ('\\' !in content) return content
     return LATEX_DELIMITER_REGEX.replace(content) { match ->
         val inline = match.groups[2]?.value?.trim()
         when {
             match.groups[1] != null -> match.value
+            match.groups[4] != null -> "$" + match.value + "$"
             // 解析器要求 $ 内侧不能有空白，而 \( x \) 这种带空格的写法很常见，所以要去掉
             inline != null -> if (inline.isEmpty()) match.value else "$$inline$"
             // 块级公式里的换行会打断解析，合并成一行
             else -> "$$" + match.groupValues[3].trim().replace(LATEX_LINE_BREAK_REGEX, " ") + "$$"
         }
     }
+}
+
+private val TABLE_DELIMITER_ROW_REGEX = Regex("""^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$""")
+private val FENCE_REGEX = Regex("""^\s{0,3}(```|~~~)""")
+private val ROW_MATH_REGEX = Regex("""\$\$.+?\$\$|\$(?=[^\s$])(?:\\.|[^$\\])*?(?<=[^\s\\])\$""")
+private val UNESCAPED_PIPE_REGEX = Regex("""(?<!\\)\|""")
+
+/**
+ * GFM 表格按 `|` 切分单元格，不管它是不是在公式里，`$|x|$`、`$P(A|B)$` 会被从中间切断。
+ * 表格行里公式中的 `|` 换成同样画成竖线的 `\vert{}`（不能带空格，否则结尾的 `$` 前有空白就不算公式了），
+ * `\|` 范数保持不变。
+ */
+internal fun protectTablePipesInMath(content: String): String {
+    if ('|' !in content || '$' !in content) return content
+    val lines = content.split('\n').toMutableList()
+    var inFence = false
+    var inTable = false
+    for (index in lines.indices) {
+        val line = lines[index]
+        if (FENCE_REGEX.containsMatchIn(line)) {
+            inFence = !inFence
+            inTable = false
+            continue
+        }
+        if (inFence) continue
+        val next = lines.getOrNull(index + 1)
+        when {
+            !inTable && '|' in line && next != null && TABLE_DELIMITER_ROW_REGEX.matches(next) -> inTable = true
+            inTable && (line.isBlank() || '|' !in line) -> inTable = false
+        }
+        if (inTable && '$' in line) {
+            lines[index] = ROW_MATH_REGEX.replace(line) { math ->
+                math.value.replace(UNESCAPED_PIPE_REGEX, Regex.escapeReplacement("\\vert{}"))
+            }
+        }
+    }
+    return lines.joinToString("\n")
 }
 
 // ---- 生成 HTML ----

@@ -293,6 +293,8 @@ dependencies {
     implementation(libs.coil.gif)
     implementation(libs.coil.okhttp)
     implementation(libs.coil.svg)
+    // 结构式：OpenChemLib 输出的 SVG 直接录成 Picture 绘制
+    implementation(libs.androidsvg)
     implementation(libs.coil.cache.control)
 
     // serialization

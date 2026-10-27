@@ -17,6 +17,7 @@ import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.limitContext
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.prompts.FORMULA_RENDERING_PROMPT
 import me.rerere.rikkahub.data.ai.prompts.buildMemoryPrompt
 import me.rerere.rikkahub.data.ai.tools.ChatToolFactory
 import me.rerere.rikkahub.data.ai.transformers.Base64ImageToLocalFileTransformer
@@ -221,6 +222,11 @@ class ChatRequestFactory(
                 turn.tools.forEach { tool ->
                     appendLine()
                     append(tool.systemPrompt(turn.model, messages))
+                }
+                // 能渲染公式时才告诉模型 \ce、\smiles 的写法
+                if (turn.settings.displaySetting.enableLatexRendering) {
+                    appendLine()
+                    append(FORMULA_RENDERING_PROMPT)
                 }
             }
             if (system.isNotBlank()) {

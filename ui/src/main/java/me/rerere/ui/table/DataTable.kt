@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.text.style.TextOverflow
@@ -83,6 +84,17 @@ fun DataTable(
             val bodyP1 = arrayOfNulls<Placeable>(rowCount * columnCount)
 
             // ---------- 第一阶段：自然尺寸测量（估列宽、算行高） ----------
+            // 列宽上限只约束能换行的文字；公式、结构式这类不能拆开的内容比上限还宽时，
+            // 这一列放宽到能完整放下它，否则会被裁掉一截（整张表本来就可以横向滚动）
+            fun firstPassConstraints(c: Int, measurable: Measurable): Constraints {
+                if (maxWidthsPx[c] == Int.MAX_VALUE) return unbounded
+                // 最多放宽到一屏宽，免得一长串网址把整列撑开
+                val limit = if (viewportMaxWidth == Constraints.Infinity) infinity else max(viewportMaxWidth, maxWidthsPx[c])
+                val unbreakable = measurable.minIntrinsicWidth(infinity).coerceAtMost(limit)
+                if (unbreakable > maxWidthsPx[c]) maxWidthsPx[c] = unbreakable
+                return Constraints(0, maxWidthsPx[c], 0, infinity)
+            }
+
             fun subcomposeHeaderOnce(c: Int): Placeable {
                 val measurables = subcompose("h1_$c") {
                     CellBox(
@@ -94,12 +106,7 @@ fun DataTable(
                         headers.getOrNull(c)?.invoke()
                     }
                 }
-                val constraints = if (maxWidthsPx[c] != Int.MAX_VALUE) {
-                    Constraints(0, maxWidthsPx[c], 0, infinity)
-                } else {
-                    unbounded
-                }
-                val p = measurables.first().measure(constraints)
+                val p = measurables.first().measure(firstPassConstraints(c, measurables.first()))
                 colWidths[c] = max(colWidths[c], max(p.width, minWidthsPx[c])).coerceAtMost(maxWidthsPx[c])
                 return p
             }
@@ -116,12 +123,7 @@ fun DataTable(
                         rows[r].getOrNull(c)?.invoke()
                     }
                 }
-                val constraints = if (maxWidthsPx[c] != Int.MAX_VALUE) {
-                    Constraints(0, maxWidthsPx[c], 0, infinity)
-                } else {
-                    unbounded
-                }
-                val p = measurables.first().measure(constraints)
+                val p = measurables.first().measure(firstPassConstraints(c, measurables.first()))
                 colWidths[c] = max(colWidths[c], max(p.width, minWidthsPx[c])).coerceAtMost(maxWidthsPx[c])
                 return p
             }

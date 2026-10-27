@@ -143,6 +143,11 @@ private val lineBreakSpacingRegex =
 
 private fun processLatex(latex: String): String {
     val trimmed = latex.trim().replace(lineBreakSpacingRegex) { """\\""" }
+    // \ce 统一由应用展开，修正结晶水的点和三键，结果与行内拆分时一致
+    return expandChemCommands(stripDelimiters(trimmed))
+}
+
+private fun stripDelimiters(trimmed: String): String {
     return when {
         displayDollarRegex.matches(trimmed) ->
             displayDollarRegex.find(trimmed)?.groupValues?.get(1)?.trim() ?: trimmed

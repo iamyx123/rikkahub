@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -60,6 +61,7 @@ import kotlinx.datetime.toLocalDateTime
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Copy01
 import me.rerere.hugeicons.stroke.Download04
+import me.rerere.rikkahub.data.chem.ChemStructureEngine
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.ui.context.LocalSettings
@@ -76,6 +78,7 @@ import me.rerere.ui.markdown.MarkdownInlineScope
 import me.rerere.ui.markdown.MarkdownInlineWidget
 import me.rerere.ui.markdown.plainText
 import org.koin.compose.koinInject
+import ru.noties.jlatexmath.JLatexMathDrawable
 import kotlin.time.Clock
 
 @Preview(showBackground = true)
@@ -158,7 +161,13 @@ fun MarkdownBlock(
     }
 
     val currentOnClickCitation by rememberUpdatedState(onClickCitation)
-    val components = remember(enableLatexRendering, exporting) {
+    // 结构式在后台渲染，完成后换一套 components，让行内的占位换成真正的尺寸
+    val chemVersion = if (enableLatexRendering) {
+        rememberChemStructureVersion(content, LocalContentColor.current.toArgb())
+    } else {
+        0
+    }
+    val components = remember(enableLatexRendering, exporting, chemVersion) {
         MarkdownComponents(
             codeBlock = { block ->
                 if (exporting && block.language in setOf("openui", "openui-lang")) {
@@ -195,7 +204,11 @@ fun MarkdownBlock(
                 }
             },
             table = { table -> if (exporting) MarkdownDefaults.Table(table) else TableCard(table) },
-            inlineMath = MarkdownInlineScope::inlineMathWidgets.takeIf { enableLatexRendering },
+            inlineMath = if (enableLatexRendering) {
+                { formula: String -> inlineMathWidgets(formula, exporting) }
+            } else {
+                null
+            },
             inlineLink = { link -> citationWidget(link) { currentOnClickCitation(it) } },
         )
     }
@@ -227,7 +240,84 @@ private fun rememberWorkspaceImageUrl(url: String): String? {
     return resolved
 }
 
-private fun MarkdownInlineScope.inlineMathWidgets(formula: String): List<MarkdownInlineWidget> {
+/**
+ * 行内公式。含 \ce 或 \smiles 时按段拆开：普通 TeX 照旧按运算符拆，方程式在加号和箭头后断开，
+ * 结构式单独成一块，于是它们可以和文字一起换行，在表格单元格里也一样。
+ */
+private fun MarkdownInlineScope.inlineMathWidgets(formula: String, exporting: Boolean): List<MarkdownInlineWidget> {
+    val fontSize = style.fontSize
+    if (!fontSize.isSp) return emptyList()
+    val parts = runCatching { parseMathParts(formula) }.getOrElse { return emptyList() }
+    val single = parts.singleOrNull()
+    if (single is MathPart.Tex) return texMathWidgets(single.latex)
+    val fontSizePx = with(density) { fontSize.toPx() }
+    return buildList {
+        for (part in parts) {
+            when (part) {
+                is MathPart.Tex -> addAll(texMathWidgets(part.latex).ifEmpty { return emptyList() })
+                is MathPart.Chem -> part.pieces.forEach { piece ->
+                    val drawable = getLatexDrawable(piece, fontSizePx, contentColor.toArgb(), 0) ?: return emptyList()
+                    add(latexDrawableWidget(drawable))
+                }
+
+                is MathPart.Structure -> add(structureWidget(part, fontSizePx, exporting))
+            }
+        }
+    }
+}
+
+private fun MarkdownInlineScope.latexDrawableWidget(drawable: JLatexMathDrawable) = with(density) {
+    MarkdownInlineWidget(
+        placeholder = Placeholder(
+            width = drawable.bounds.width().toSp(),
+            height = drawable.bounds.height().toSp(),
+            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+        ),
+    ) {
+        LatexDrawable(drawable = drawable)
+    }
+}
+
+/** 结构式还没渲染好时先按估计的大小占位并开始渲染，渲染完成后整段会重新排版 */
+private fun MarkdownInlineScope.structureWidget(
+    part: MathPart.Structure,
+    textSizePx: Float,
+    exporting: Boolean,
+): MarkdownInlineWidget {
+    val ink = contentColor.toArgb()
+    val result = if (exporting) {
+        ChemStructureEngine.renderBlocking(part.smiles, part.mode, ink)
+    } else {
+        ChemStructureEngine.cached(part.smiles, part.mode, ink).also {
+            if (it == null) ChemStructureEngine.request(part.smiles, part.mode, ink)
+        }
+    }
+    val (width, height) = when (result) {
+        is ChemStructureEngine.Result.Ready -> result.structure.scaleFor(textSizePx).let { scale ->
+            result.structure.width * scale to result.structure.height * scale
+        }
+
+        is ChemStructureEngine.Result.Failed -> part.smiles.length * textSizePx * 0.55f to textSizePx * 1.4f
+        null -> estimatedStructureSize(textSizePx)
+    }
+    // 说明文字按一个字约一个字号宽估算，宽度取两者较大的
+    val captionWidth = part.caption?.length?.times(textSizePx * 0.9f) ?: 0f
+    val scopeDensity = density
+    val placeholder = with(scopeDensity) {
+        Placeholder(
+            width = maxOf(width, captionWidth).toSp(),
+            height = (height + captionHeightPx(textSizePx, part.caption)).toSp(),
+            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+        )
+    }
+    return MarkdownInlineWidget(placeholder) {
+        Box(contentAlignment = Alignment.Center) {
+            ChemStructureContent(result, part, textSizePx, scopeDensity, contentColor)
+        }
+    }
+}
+
+private fun MarkdownInlineScope.texMathWidgets(formula: String): List<MarkdownInlineWidget> {
     val fontSize = style.fontSize
     if (!fontSize.isSp) return emptyList()
     return with(density) {

@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import me.rerere.common.android.appTempFolder
 import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
+import me.rerere.rikkahub.data.chem.ChemStructureEngine
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.files.FileFolders
 import me.rerere.rikkahub.data.files.FilesManager
@@ -72,6 +73,7 @@ class RikkaHubApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        ChemStructureEngine.attach(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityResumed(activity: Activity) {
                 currentActivity = activity

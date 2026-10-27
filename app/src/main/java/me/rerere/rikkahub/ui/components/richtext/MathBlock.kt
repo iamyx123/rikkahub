@@ -9,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -40,7 +41,14 @@ fun MathBlock(
 ) {
     val proceededLatex = latex
     val exporting = LocalExportContext.current
-    if (exporting) {
+    val parts = remember(latex) { runCatching { parseMathParts(latex) }.getOrElse { listOf(MathPart.Tex(latex)) } }
+    if (parts.any { it is MathPart.Structure }) {
+        ChemMathRow(
+            parts = parts,
+            modifier = modifier.padding(vertical = 8.dp),
+            fontSize = fontSize,
+        )
+    } else if (exporting) {
         // 导出/打印：屏幕上靠横向滚动查看的宽公式无法滚动，改为按可用宽度等比缩小字号以完整放下（不裁切）
         val density = LocalDensity.current
         val baseFs = fontSize.takeOrElse { LocalTextStyle.current.fontSize }

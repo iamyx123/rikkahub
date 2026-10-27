@@ -1,0 +1,14 @@
+{
+  "name": "rikkahub-chem-engine",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "openchemlib": "9.25.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.4"
+  }
+}
