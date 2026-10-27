@@ -87,7 +87,7 @@ class ReadingPowerControllerTest {
         runCurrent()
         repeat(3) {
             for (state in listOf(Lifecycle.State.STARTED, Lifecycle.State.RESUMED)) {
-                controller.setReading("classroom-chat", readingPowerPageVisible(state), false)
+                controller.setReading("classroom-chat", true, false, pageVisible = readingPowerPageVisible(state))
                 controller.refreshSystemFlightMode()
                 runCurrent()
                 assertTrue(access.flight)
@@ -95,7 +95,7 @@ class ReadingPowerControllerTest {
             }
         }
         assertEquals(listOf(true), access.writes)
-        controller.setReading("classroom-chat", readingPowerPageVisible(Lifecycle.State.CREATED), false)
+        controller.setReading("classroom-chat", true, false, pageVisible = readingPowerPageVisible(Lifecycle.State.CREATED))
         runCurrent()
         assertFalse(access.flight)
         assertEquals(listOf(true, false), access.writes)
@@ -108,10 +108,10 @@ class ReadingPowerControllerTest {
         controller.read(30)
         runCurrent()
         advanceTimeBy(10_000)
-        controller.setReading("classroom-chat", readingPowerPageVisible(Lifecycle.State.STARTED), false)
+        controller.setReading("classroom-chat", true, false, pageVisible = readingPowerPageVisible(Lifecycle.State.STARTED))
         runCurrent()
         advanceTimeBy(5_000)
-        controller.setReading("classroom-chat", readingPowerPageVisible(Lifecycle.State.RESUMED), false)
+        controller.setReading("classroom-chat", true, false, pageVisible = readingPowerPageVisible(Lifecycle.State.RESUMED))
         runCurrent()
         assertEquals(30_000L, controller.state.value.deadlineElapsedMs)
         advanceTimeBy(15_000)
@@ -119,7 +119,7 @@ class ReadingPowerControllerTest {
         assertEquals(listOf(true), access.writes)
         controller.setReading("classroom-chat", true, true)
         runCurrent()
-        controller.setReading("classroom-chat", readingPowerPageVisible(Lifecycle.State.STARTED), true)
+        controller.setReading("classroom-chat", true, true, pageVisible = readingPowerPageVisible(Lifecycle.State.STARTED))
         advanceTimeBy(120_000)
         runCurrent()
         assertFalse(access.flight)
@@ -272,6 +272,10 @@ class ReadingPowerControllerTest {
         controller.read(0)
         runCurrent()
         controller.setReading(null, false, false)
+        runCurrent()
+        // 离开聊天页要等一小会儿，切换会话时新页面会马上接上
+        assertTrue(access.flight)
+        advanceTimeBy(1_500)
         runCurrent()
         assertFalse(access.flight)
         controller.setReading("chat", true, false)
@@ -510,7 +514,7 @@ class ReadingPowerControllerTest {
     }
 
     @Test
-    fun `changing conversation or the configured delay starts a new countdown`() = runTest {
+    fun `switching conversations keeps the countdown while a new delay restarts it`() = runTest {
         val access = Access()
         val controller = controller(access)
         controller.read(30)
@@ -518,10 +522,61 @@ class ReadingPowerControllerTest {
         advanceTimeBy(10_000)
         controller.setReading("another-chat", true, false)
         runCurrent()
-        assertEquals(40_000L, controller.state.value.deadlineElapsedMs)
+        assertEquals(30_000L, controller.state.value.deadlineElapsedMs)
+        // 切到还没有回答的会话也不打断倒计时
+        controller.setReading("empty-chat", false, false)
+        runCurrent()
+        assertEquals(30_000L, controller.state.value.deadlineElapsedMs)
+        controller.setReading("another-chat", true, false)
+        runCurrent()
+        assertEquals(30_000L, controller.state.value.deadlineElapsedMs)
         controller.configure(true, 5)
         runCurrent()
         assertEquals(15_000L, controller.state.value.deadlineElapsedMs)
+    }
+
+    @Test
+    fun `switching conversations through a page swap never toggles airplane mode`() = runTest {
+        val access = Access()
+        val controller = controller(access)
+        controller.read(0)
+        runCurrent()
+        repeat(3) { round ->
+            // 旧页面先销毁，新页面随后接上
+            controller.clearReading(if (round == 0) "classroom-chat" else "chat-$round")
+            runCurrent()
+            advanceTimeBy(300)
+            controller.setReading("chat-${round + 1}", round % 2 == 0, false)
+            runCurrent()
+            assertTrue(access.flight)
+        }
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(listOf(true), access.writes)
+    }
+
+    @Test
+    fun `opening the keyboard restores the network and closing it starts a fresh countdown`() = runTest {
+        val access = Access()
+        val controller = controller(access)
+        controller.read(30)
+        runCurrent()
+        advanceTimeBy(30_000)
+        runCurrent()
+        assertTrue(access.flight)
+        controller.setImeVisible(true)
+        runCurrent()
+        assertFalse(access.flight)
+        advanceTimeBy(120_000)
+        runCurrent()
+        assertFalse(access.flight)
+        controller.setImeVisible(false)
+        runCurrent()
+        assertEquals(150_000L + 30_000L, controller.state.value.deadlineElapsedMs)
+        advanceTimeBy(30_000)
+        runCurrent()
+        assertTrue(access.flight)
+        assertEquals(listOf(true, false, true), access.writes)
     }
 
     @Test
@@ -533,8 +588,10 @@ class ReadingPowerControllerTest {
         controller.setReading("classroom-chat/new-answer", true, false)
         controller.clearReading("classroom-chat")
         runCurrent()
-        assertEquals(35_000L, controller.state.value.deadlineElapsedMs)
+        assertEquals(30_000L, controller.state.value.deadlineElapsedMs)
         controller.clearReading("classroom-chat/new-answer")
+        runCurrent()
+        advanceTimeBy(1_500)
         runCurrent()
         assertEquals(ReadingPowerPhase.INACTIVE, controller.state.value.phase)
     }

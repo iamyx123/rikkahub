@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyListState
@@ -56,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -179,13 +182,26 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     val latestAnswer = conversation.currentMessages.lastOrNull()?.takeIf { it.role == MessageRole.ASSISTANT }
     val readingToken = "${conversation.id}/${latestAnswer?.id ?: "none"}"
     val canReadAnswer = latestAnswer != null && latestAnswer.parts.isNotEmpty() &&
-        latestAnswer.parts.none { it is UIMessagePart.Tool && it.isPending } &&
-        readingPowerPageVisible(pageLifecycle)
-    LaunchedEffect(readingToken, canReadAnswer, loadingJob, voiceForPower.isActive, dictationForPower.isRecording, speakingForPower) {
-        readingPower.setReading(readingToken, canReadAnswer, loadingJob != null || voiceForPower.isActive || dictationForPower.isRecording || speakingForPower)
+        latestAnswer.parts.none { it is UIMessagePart.Tool && it.isPending }
+    val pageVisibleForPower = readingPowerPageVisible(pageLifecycle)
+    LaunchedEffect(readingToken, canReadAnswer, pageVisibleForPower, loadingJob, voiceForPower.isActive, dictationForPower.isRecording, speakingForPower) {
+        readingPower.setReading(
+            conversationId = readingToken,
+            hasCompletedAnswer = canReadAnswer,
+            generating = loadingJob != null || voiceForPower.isActive || dictationForPower.isRecording || speakingForPower,
+            pageVisible = pageVisibleForPower,
+        )
     }
     DisposableEffect(readingPower, readingToken) {
         onDispose { readingPower.clearReading(readingToken) }
+    }
+    // 键盘一弹出就恢复联网：用户要接着输入，输入法本身也常常需要网络
+    val imeVisibleForPower = WindowInsets.imeAnimationTarget.getBottom(LocalDensity.current) > 0
+    LaunchedEffect(imeVisibleForPower) {
+        readingPower.setImeVisible(imeVisibleForPower)
+    }
+    DisposableEffect(readingPower) {
+        onDispose { readingPower.setImeVisible(false) }
     }
 
     // 新会话发出第一条消息前，跟随抽屉当前选中的文件夹（#2133）

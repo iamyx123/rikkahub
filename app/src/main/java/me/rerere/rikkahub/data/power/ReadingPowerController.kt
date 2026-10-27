@@ -63,7 +63,13 @@ class ReadingPowerNetworkLease internal constructor(
  * serialized, verified against the system, and journaled for recovery after a process restart.
  * Requests hold a lease until their response body/stream is closed so a reading timer cannot
  * interrupt downloads, MCP calls, or another conversation's generation.
+ *
+ * 切换会话不算「不再阅读」：倒计时和已开启的飞行模式都保持不变，只有生成、请求、打开输入法、
+ * 页面不可见、退到后台、关闭功能或真正离开聊天页才恢复联网。输入法本身也常要联网（云输入、语音），
+ * 所以键盘一弹出就恢复，收起后重新倒计时。
  */
+private const val LEAVE_CHAT_GRACE_MILLIS = 1_500L
+
 class ReadingPowerController(
     private val scope: CoroutineScope,
     private val access: FlightModeAccess,
@@ -80,9 +86,9 @@ class ReadingPowerController(
         val conversationId: String? = null,
         val completed: Boolean = false,
         val generating: Boolean = false,
+        val pageVisible: Boolean = true,
+        val imeVisible: Boolean = false,
     )
-
-    private data class ReadingKey(val conversationId: String, val delaySeconds: Int)
 
     private val inputLock = Any()
     private var inputs = Inputs()
@@ -93,8 +99,9 @@ class ReadingPowerController(
     private var recoveryLoaded = false
     private var ownsFlightMode = false
     private var networkNeedsSettle = false
-    private var activeReading: ReadingKey? = null
     private var timer: Job? = null
+    private var countdownDelay: Int? = null
+    private var leaveGrace: Job? = null
     private val _state = MutableStateFlow(ReadingPowerState())
     val state: StateFlow<ReadingPowerState> = _state.asStateFlow()
 
@@ -110,10 +117,25 @@ class ReadingPowerController(
         updateInputs { copy(foreground = foreground) }
     }
 
-    fun setReading(conversationId: String?, hasCompletedAnswer: Boolean, generating: Boolean) {
+    fun setReading(
+        conversationId: String?,
+        hasCompletedAnswer: Boolean,
+        generating: Boolean,
+        pageVisible: Boolean = true,
+    ) {
         updateInputs {
-            copy(conversationId = conversationId, completed = hasCompletedAnswer, generating = generating)
+            copy(
+                conversationId = conversationId,
+                completed = hasCompletedAnswer,
+                generating = generating,
+                pageVisible = pageVisible,
+            )
         }
+    }
+
+    /** 键盘弹出说明用户要接着输入，输入法需要网络 */
+    fun setImeVisible(visible: Boolean) {
+        updateInputs { copy(imeVisible = visible) }
     }
 
     fun clearReading(conversationId: String) {
@@ -175,7 +197,6 @@ class ReadingPowerController(
         try {
             mutex.withLock {
                 cancelTimer()
-                activeReading = null
                 if (!loadAndRecoverLocked() || !restoreOwnedLocked()) {
                     throw IOException(state.value.error ?: "飞行模式尚未恢复，已暂停联网。")
                 }
@@ -237,40 +258,76 @@ class ReadingPowerController(
         }
     }
 
-    private fun readingKey(): ReadingKey? = snapshot().let { current ->
-        if (current.enabled && current.foreground && current.conversationId != null &&
-            current.completed && !current.generating && networkLeases.get() == 0
-        ) ReadingKey(current.conversationId, current.delaySeconds) else null
-    }
+    /** 能不能保持离线；不看是哪个会话，所以切换会话不会打断倒计时 */
+    private fun offlineAllowed(current: Inputs = snapshot()): Boolean =
+        current.enabled && current.foreground && current.pageVisible && !current.generating &&
+            !current.imeVisible && networkLeases.get() == 0
+
+    private fun onChatPage(current: Inputs = snapshot()): Boolean = offlineAllowed(current) && current.conversationId != null
 
     private suspend fun reconcileLocked() {
         if (!loadAndRecoverLocked()) return
-        val reading = readingKey()
-        if (reading == null) {
-            cancelTimer()
-            activeReading = null
-            if (restoreOwnedLocked()) {
-                publish(if (snapshot().enabled) ReadingPowerPhase.INACTIVE else ReadingPowerPhase.DISABLED)
-            }
+        val current = snapshot()
+        if (!offlineAllowed(current)) {
+            cancelLeaveGrace()
+            goOnlineLocked()
             return
         }
-        if (activeReading == reading && (timer != null || state.value.phase == ReadingPowerPhase.AIRPLANE)) return
+        if (current.conversationId == null) {
+            leaveChatLocked()
+            return
+        }
+        cancelLeaveGrace()
+        if (timer != null && countdownDelay == current.delaySeconds) return
+        if (timer == null && state.value.phase == ReadingPowerPhase.AIRPLANE) return
         cancelTimer()
+        // 没有可读的回答（新会话、最后一条是自己发的）时不开始倒计时，但已经离线的状态照旧保持
+        if (!current.completed) {
+            publish(ReadingPowerPhase.INACTIVE)
+            return
+        }
         if (!restoreOwnedLocked()) return
-        activeReading = reading
-        if (reading.delaySeconds == 0) {
-            enableLocked(reading)
+        if (current.delaySeconds == 0) {
+            enableLocked()
         } else {
-            publish(ReadingPowerPhase.COUNTDOWN, deadline = elapsedRealtime() + reading.delaySeconds * 1_000L)
+            countdownDelay = current.delaySeconds
+            publish(ReadingPowerPhase.COUNTDOWN, deadline = elapsedRealtime() + current.delaySeconds * 1_000L)
             timer = scope.launch {
-                pause(reading.delaySeconds * 1_000L)
+                pause(current.delaySeconds * 1_000L)
                 mutex.withLock {
                     timer = null
-                    if (readingKey() == reading && activeReading == reading) enableLocked(reading)
-                    else reconcileLocked()
+                    countdownDelay = null
+                    if (onChatPage()) enableLocked() else reconcileLocked()
                 }
             }
         }
+    }
+
+    private suspend fun goOnlineLocked() {
+        cancelTimer()
+        if (restoreOwnedLocked()) {
+            publish(if (snapshot().enabled) ReadingPowerPhase.INACTIVE else ReadingPowerPhase.DISABLED)
+        }
+    }
+
+    /**
+     * 切换会话时旧页面先销毁、新页面再接上，中间会短暂没有会话。等一小会儿再恢复联网，
+     * 新页面接上了就什么都不用改。
+     */
+    private fun leaveChatLocked() {
+        if (leaveGrace != null) return
+        leaveGrace = scope.launch {
+            pause(LEAVE_CHAT_GRACE_MILLIS)
+            mutex.withLock {
+                leaveGrace = null
+                if (snapshot().conversationId == null) goOnlineLocked() else reconcileLocked()
+            }
+        }
+    }
+
+    private fun cancelLeaveGrace() {
+        leaveGrace?.cancel()
+        leaveGrace = null
     }
 
     private suspend fun loadAndRecoverLocked(): Boolean {
@@ -286,16 +343,16 @@ class ReadingPowerController(
         }
     }
 
-    private suspend fun enableLocked(reading: ReadingKey) = withContext(NonCancellable) {
+    private suspend fun enableLocked() = withContext(NonCancellable) {
         try {
-            if (readingKey() != reading) return@withContext
+            if (!onChatPage()) return@withContext
             if (readFlightMode()) {
                 // A pre-existing user choice is never owned and is never turned off by this feature.
                 publish(ReadingPowerPhase.AIRPLANE)
                 return@withContext
             }
             if (!access.hasRootAccess()) throw IOException("阅读省电需要 Root 权限，未更改飞行模式。")
-            if (readingKey() != reading) return@withContext
+            if (!onChatPage()) return@withContext
             recoveryStore.setRestorePending(true)
             ownsFlightMode = true
             publish(ReadingPowerPhase.ENABLING)
@@ -303,7 +360,7 @@ class ReadingPowerController(
             if (!verifyFlightMode(true)) {
                 throw IOException("系统未确认开启飞行模式。", commandError)
             }
-            if (readingKey() == reading) publish(ReadingPowerPhase.AIRPLANE)
+            if (onChatPage()) publish(ReadingPowerPhase.AIRPLANE)
             else if (restoreOwnedLocked()) {
                 publish(if (snapshot().enabled) ReadingPowerPhase.INACTIVE else ReadingPowerPhase.DISABLED)
             }
@@ -358,6 +415,7 @@ class ReadingPowerController(
     private fun cancelTimer() {
         timer?.cancel()
         timer = null
+        countdownDelay = null
     }
 
     private fun publish(phase: ReadingPowerPhase, deadline: Long? = null, error: String? = null) {
