@@ -829,7 +829,7 @@
   <string name="setting_page_preferences_theme">Design</string>
   <string name="setting_page_preferences_theme_desc">Dynamische Farben, Design, AMOLED-Dunkelmodus</string>
   <string name="setting_page_preferences_notification">Benachrichtigungen</string>
-  <string name="setting_page_preferences_notification_desc">Update-Hinweise, Benachrichtigungen zur Nachrichtengenerierung</string>
+  <string name="setting_page_preferences_notification_desc">Update-Hinweise, Benachrichtigungen zur Nachrichtengenerierung, schwebendes Hintergrundfenster</string>
   <string name="setting_page_color_mode">Farbmodus</string>
   <string name="setting_page_color_mode_dark">Dunkel</string>
   <string name="setting_page_color_mode_light">Hell</string>
@@ -1103,8 +1103,6 @@
   <string name="use_web_search">Websuche</string>
   <string name="user_default_name">Benutzer</string>
   <string name="video">Video</string>
-  <string name="web_search_disabled">Websuche deaktiviert</string>
-  <string name="web_search_enabled">Websuche aktiviert</string>
   <string name="setting_theme_page_delete_theme_title">Design löschen</string>
   <string name="setting_theme_page_delete_theme_message">Möchtest du dieses Design wirklich löschen?</string>
   <string name="skills_page_import_from_file">Aus Datei importieren</string>
@@ -1458,7 +1456,6 @@
   <string name="setting_page_media">Medien</string>
   <string name="setting_page_media_desc">Anbieter für Bild- und Videogenerierung, Asset-Upload</string>
   <string name="setting_media_page_providers">Anbieter</string>
-  <string name="setting_media_page_edit_provider">Anbieter bearbeiten</string>
   <string name="setting_media_page_add_provider">Anbieter hinzufügen</string>
   <string name="media_creation_page_param_watermark">Wasserzeichen</string>
   <string name="media_creation_page_param_prompt_enhancement">Prompt-Verbesserung</string>
@@ -1770,4 +1767,25 @@
   <string name="setting_display_page_immersive_mode_title">Immersiver Modus</string>
   <string name="setting_display_page_scroll_to_bottom_on_send_desc">Springt beim Senden automatisch zur neuesten Nachricht. Deaktiviere dies, um deine aktuelle Leseposition beizubehalten.</string>
   <string name="setting_display_page_scroll_to_bottom_on_send_title">Beim Senden zur neuesten Nachricht</string>
+  <string name="setting_page_preferences_notification_background_generation">Hintergrundgenerierung</string>
+  <string name="setting_page_preferences_notification_floating_window">Schwebefenster im Hintergrund</string>
+  <string name="setting_page_preferences_notification_floating_window_desc">Wenn du die App verlässt, während die KI noch antwortet, wird ein schwebendes Symbol eingeblendet. Tippe darauf, um den Fortschritt zu prüfen, Tool-Aufrufe zu bestätigen und schnell zu antworten</string>
+  <string name="setting_page_preferences_notification_overlay_permission">Overlay-Berechtigung erteilen</string>
+  <string name="setting_page_preferences_notification_overlay_permission_desc">Ohne diese Berechtigung wird das schwebende Fenster nicht angezeigt.</string>
+  <string name="floating_chat_open_conversation">Unterhaltung öffnen</string>
+  <string name="floating_chat_collapse">Einklappen</string>
+  <string name="floating_chat_close">Schwebendes Fenster schließen</string>
+  <string name="floating_chat_ask_user">Die KI hat eine Frage an dich</string>
+  <string name="floating_chat_tool_request">Möchte Tool aufrufen: %1$s</string>
+  <string name="floating_chat_answer">Antworten</string>
+  <string name="floating_chat_reply_placeholder">Schnellantwort…</string>
+  <string name="floating_chat_reply_queued_placeholder">Deine Antwort wird gesendet, sobald diese Runde endet</string>
+  <string name="floating_chat_status_failed">Generierung fehlgeschlagen</string>
+  <string name="floating_chat_status_awaiting_answer">Warte auf deine Antwort</string>
+  <string name="floating_chat_status_awaiting_approval">Warten auf Bestätigung des Tool-Aufrufs</string>
+  <string name="floating_chat_status_done">Antwort abgeschlossen</string>
+  <string name="floating_chat_status_idle">Inaktiv</string>
+  <string name="setting_model_page_memory_model">Erinnerungskonsolidierungsmodell</string>
+  <string name="setting_model_page_memory_model_desc">Modell, das Konversationen im Hintergrund in langfristige Erinnerungen organisiert; verwendet das schnelle Modell, wenn nicht festgelegt</string>
+  <string name="setting_model_page_memory_model_follow_fast">Wie das schnelle Modell</string>
 </resources>

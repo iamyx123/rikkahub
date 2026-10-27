@@ -41,7 +41,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.toPath
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -67,7 +66,6 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -95,6 +93,9 @@ import me.rerere.rikkahub.data.study.StudyDesktopManager
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.CardGroupIcon
+import me.rerere.rikkahub.ui.components.ui.drawAppLogo
+import me.rerere.rikkahub.ui.components.ui.logoMorphShape
+import me.rerere.rikkahub.ui.components.ui.rememberAppLogoLayers
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.SoundEffectPlayer
@@ -142,11 +143,6 @@ fun SettingAboutPage() {
     var showStudyExitDialog by remember { mutableStateOf(false) }
     var studyExitPassword by remember { mutableStateOf("") }
     var studyExitPasswordError by remember { mutableStateOf(false) }
-    // 直接画图标的各层：整张图标带着系统的图标蒙版，会和变形的轮廓叠在一起
-    val logoLayers = remember(context) {
-        val icon = ContextCompat.getDrawable(context, R.mipmap.ic_launcher)
-        if (icon is AdaptiveIconDrawable) listOfNotNull(icon.background, icon.foreground) else listOfNotNull(icon)
-    }
     // 表情从 logo 中心喷出，坐标要换算到 EmojiBurstHost 里
     var hostCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var logoCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -445,44 +441,3 @@ fun SettingAboutPage() {
     }
 }
 
-// 自适应图标的图层是 108dp，可见的只有中间 72dp，四周各多出四分之一
-private fun logoLayerBounds(size: Size): Rect {
-    val insetX = (size.width / 4f).roundToInt()
-    val insetY = (size.height / 4f).roundToInt()
-    return Rect(-insetX, -insetY, size.width.roundToInt() + insetX, size.height.roundToInt() + insetY)
-}
-
-// logo 依次变成的形状，最后一个接回第一个
-private val LogoShapes = listOf(
-    MaterialShapes.Cookie12Sided,
-    MaterialShapes.Clover4Leaf,
-    MaterialShapes.Cookie9Sided,
-    MaterialShapes.Sunny,
-    MaterialShapes.Cookie6Sided,
-    MaterialShapes.Flower,
-    MaterialShapes.Cookie4Sided,
-)
-
-private val LogoMorphs = LogoShapes.indices.map { index ->
-    Morph(LogoShapes[index], LogoShapes[(index + 1) % LogoShapes.size])
-}
-
-// 停在两个形状之间某一帧的轮廓
-private class MorphShape(
-    private val morph: Morph,
-    private val progress: Float,
-    private val rotation: Float,
-) : Shape {
-    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
-        val path = morph.toPath(progress = progress)
-        // MaterialShapes 是归一化到 1x1 的，先放大到实际尺寸，再绕中心旋转
-        val matrix = Matrix().apply {
-            translate(size.width / 2f, size.height / 2f)
-            rotateZ(rotation)
-            translate(-size.width / 2f, -size.height / 2f)
-            scale(size.width, size.height)
-        }
-        path.transform(matrix)
-        return Outline.Generic(path)
-    }
-}
