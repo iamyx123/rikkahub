@@ -163,12 +163,14 @@ internal fun collectStructures(content: String): List<MathPart.Structure> {
     }.distinct().toList()
 }
 
-private val SMILES_COMMAND_REGEX = Regex("""\\smiles\s*(?:\[[^\]\n]*])?\s*\{[^{}\n]*}""")
+// 安卓用 ICU 正则，未转义的 } 会在类加载时抛错，花括号、方括号都要转义
+private val SMILES_COMMAND_REGEX = Regex("""\\smiles\s*(?:\[[^\]\n]*\])?\s*\{[^\{\}\n]*\}""")
 
 /** 正在显示的内容里有结构式时，渲染完成会改变这个值，让公式重新排版 */
 @Composable
 internal fun rememberChemStructureVersion(content: String, ink: Int): Int {
-    val structures = remember(content) { collectStructures(content) }
+    // 结构式只是锦上添花，任何异常都不能拖垮整条消息的渲染
+    val structures = remember(content) { runCatching { collectStructures(content) }.getOrDefault(emptyList()) }
     if (structures.isEmpty()) return 0
     LaunchedEffect(structures, ink) {
         structures.forEach { ChemStructureEngine.request(it.smiles, it.mode, ink) }
