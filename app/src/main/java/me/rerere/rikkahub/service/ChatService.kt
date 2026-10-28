@@ -441,7 +441,11 @@ class ChatService(
                 val assistant = currentSettings.getStoredAssistantOf(session.state.value)
                 val processedContent = queued.parts.replaceUserRegexes(assistant)
 
-                val uiPrompt = if (session.state.value.config?.enableInteractiveUi == true) {
+                // 新会话发第一条消息时还没有固定配置，按钮显示的是默认值，这里也必须按默认值算，
+                // 否则第一条消息不带交互提示，要到第二条才生效
+                fun interactiveUiOn(conversation: Conversation) =
+                    conversation.config?.enableInteractiveUi ?: currentSettings.interactiveUiDefault
+                val uiPrompt = if (interactiveUiOn(session.state.value)) {
                     withContext(Dispatchers.IO) {
                         me.rerere.rikkahub.data.intelligentui.InteractiveUiRuntime.prompt(context, currentSettings.interactiveUiPrompt)
                     }
@@ -452,7 +456,7 @@ class ChatService(
                 // 添加消息到列表
                 val previousIds = session.state.value.currentMessages.mapTo(HashSet()) { it.id }
                 session.update {
-                    val enabled = it.config?.enableInteractiveUi == true
+                    val enabled = interactiveUiOn(it)
                     val previousTurn = it.currentMessages.lastOrNull { message -> message.interactiveUiMode != null }
                     val previous = previousTurn?.interactiveUiMode ?: false
                     it.copy(
