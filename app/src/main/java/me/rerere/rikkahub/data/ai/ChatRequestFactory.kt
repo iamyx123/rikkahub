@@ -203,6 +203,13 @@ class ChatRequestFactory(
         val assistant = turn.assistant
         val requestMessages = buildList {
             val system = buildString {
+                // 公式与结构式的写法放在最前面：放在长长的工具说明后面时，模型仍会说自己只能用文字。
+                // 这段是固定文本，放在开头同样不影响提示词缓存
+                if (turn.settings.displaySetting.enableLatexRendering) {
+                    append(FORMULA_RENDERING_PROMPT)
+                    appendLine()
+                    appendLine()
+                }
                 val effectiveSystemPrompt =
                     if (assistant.allowConversationSystemPrompt && !turn.conversationSystemPrompt.isNullOrBlank()) {
                         turn.conversationSystemPrompt
@@ -222,11 +229,6 @@ class ChatRequestFactory(
                 turn.tools.forEach { tool ->
                     appendLine()
                     append(tool.systemPrompt(turn.model, messages))
-                }
-                // 能渲染公式时才告诉模型 \ce、\smiles 的写法
-                if (turn.settings.displaySetting.enableLatexRendering) {
-                    appendLine()
-                    append(FORMULA_RENDERING_PROMPT)
                 }
             }
             if (system.isNotBlank()) {
